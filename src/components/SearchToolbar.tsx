@@ -1,5 +1,5 @@
 import { BookOpenText, PencilLine, Plus, RefreshCw, Search, X } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { TagOption } from '../types/content';
 
 interface SearchToolbarProps {
@@ -29,6 +29,18 @@ export function SearchToolbar({
 }: SearchToolbarProps) {
   const [isManagingTags, setIsManagingTags] = useState(false);
   const [deletingTagId, setDeletingTagId] = useState<string | null>(null);
+  const sortedTags = useMemo(
+    () =>
+      [...availableTags].sort((left, right) => {
+        const frequencyDiff = (right.frecuencia ?? 0) - (left.frecuencia ?? 0);
+        if (frequencyDiff !== 0) {
+          return frequencyDiff;
+        }
+
+        return left.nombre.localeCompare(right.nombre, 'es');
+      }),
+    [availableTags],
+  );
 
   return (
     <section className="rounded-[2rem] border border-black/5 bg-white/85 p-5 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.35)] backdrop-blur">
@@ -92,46 +104,58 @@ export function SearchToolbar({
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {availableTags.map((tag) => {
-          const active = selectedTags.includes(tag.nombre);
-          return (
-            <div
-              key={tag.nombre}
-              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                active
-                  ? 'border-amber-500 bg-amber-100 text-amber-900'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <button onClick={() => onToggleTag(tag.nombre)}>{tag.nombre}</button>
-                {isManagingTags && tag.id && (
-                  <button
-                    onClick={async () => {
-                      const confirmed = window.confirm(`¿Eliminar el tag "${tag.nombre}"? Se quitará de los contenidos donde esté asociado.`);
-                      if (!confirmed) {
-                        return;
-                      }
+      <div className="mt-4 rounded-[1.6rem] border border-slate-200/80 bg-slate-50/80 p-3">
+        <div className="mb-3 flex items-center justify-between gap-3 px-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Tags</p>
+          <p className="text-xs text-slate-400">Más usadas primero</p>
+        </div>
 
-                      setDeletingTagId(tag.id);
-                      try {
-                        await onDeleteTag(tag);
-                      } finally {
-                        setDeletingTagId(null);
-                      }
-                    }}
-                    disabled={deletingTagId === tag.id}
-                    className="rounded-full p-0.5 text-red-500 transition hover:bg-red-50 disabled:text-slate-300"
-                    title={`Eliminar ${tag.nombre}`}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        <div className="max-h-[10.5rem] overflow-y-auto overscroll-contain pr-1">
+          <div className="flex flex-wrap gap-2">
+            {sortedTags.map((tag) => {
+              const active = selectedTags.includes(tag.nombre);
+              return (
+                <div
+                  key={tag.nombre}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                    active
+                      ? 'border-amber-500 bg-amber-100 text-amber-900'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => onToggleTag(tag.nombre)}>
+                      {tag.nombre}
+                      <span className="ml-1 text-[11px] text-slate-400">({tag.frecuencia ?? 0})</span>
+                    </button>
+                    {isManagingTags && tag.id && (
+                      <button
+                        onClick={async () => {
+                          const confirmed = window.confirm(`¿Eliminar el tag "${tag.nombre}"? Se quitará de los contenidos donde esté asociado.`);
+                          if (!confirmed) {
+                            return;
+                          }
+
+                          setDeletingTagId(tag.id);
+                          try {
+                            await onDeleteTag(tag);
+                          } finally {
+                            setDeletingTagId(null);
+                          }
+                        }}
+                        disabled={deletingTagId === tag.id}
+                        className="rounded-full p-0.5 text-red-500 transition hover:bg-red-50 disabled:text-slate-300"
+                        title={`Eliminar ${tag.nombre}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </section>
   );
