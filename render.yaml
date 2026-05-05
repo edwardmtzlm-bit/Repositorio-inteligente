@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: repositorio-de-conocimiento-backend
+    runtime: node
+    plan: starter
+    rootDir: .
+    buildCommand: npm install --cache /tmp/npm-cache-marchand && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/tags
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+        sync: false
+      - key: GENERAL_GOOGLE_DOC_ID
+        sync: false

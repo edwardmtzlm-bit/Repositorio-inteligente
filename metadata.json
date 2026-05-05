@@ -1,0 +1,7 @@
+{
+  "name": "Repositorio de Conocimiento Marchand",
+  "description": "Una aplicación para capturar, procesar con IA y organizar conocimiento visual mediante OCR, traducción y etiquetado inteligente.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
