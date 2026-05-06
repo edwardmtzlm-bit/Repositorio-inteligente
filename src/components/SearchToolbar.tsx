@@ -1,13 +1,13 @@
 import { BookOpenText, FolderTree, Plus, RefreshCw, Search } from 'lucide-react';
 import { useMemo } from 'react';
-import type { TagOption } from '../types/content';
+import type { TagCatalogBlock } from '../types/content';
 
 interface SearchToolbarProps {
   search: string;
   onSearchChange: (value: string) => void;
-  availableTags: TagOption[];
-  selectedTags: string[];
-  onToggleTag: (tagName: string) => void;
+  availableBlocks: TagCatalogBlock[];
+  selectedBlocks: string[];
+  onToggleBlock: (blockName: string) => void;
   onOpenCatalog: () => void;
   onCreateNew: () => void;
   libraryDocxUrl: string;
@@ -18,26 +18,19 @@ interface SearchToolbarProps {
 export function SearchToolbar({
   search,
   onSearchChange,
-  availableTags,
-  selectedTags,
-  onToggleTag,
+  availableBlocks,
+  selectedBlocks,
+  onToggleBlock,
   onOpenCatalog,
   onCreateNew,
   libraryDocxUrl,
   onSyncLibraryDocx,
   onRegenerateExistingDocuments,
 }: SearchToolbarProps) {
-  const sortedTags = useMemo(
+  const sortedBlocks = useMemo(
     () =>
-      [...availableTags].sort((left, right) => {
-        const frequencyDiff = (right.frecuencia ?? 0) - (left.frecuencia ?? 0);
-        if (frequencyDiff !== 0) {
-          return frequencyDiff;
-        }
-
-        return left.nombre.localeCompare(right.nombre, 'es');
-      }),
-    [availableTags],
+      [...availableBlocks].sort((left, right) => left.nombre.localeCompare(right.nombre, 'es')),
+    [availableBlocks],
   );
 
   return (
@@ -93,24 +86,23 @@ export function SearchToolbar({
             className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#b791d0] px-5 py-3 text-sm font-semibold text-[#2d0140] transition hover:bg-[#a97dc8]"
           >
             <Plus className="h-4 w-4" />
-            + Nuevo contenido
+            Nuevo contenido
           </button>
         </div>
       </div>
 
       <div className="mt-4 rounded-[1.6rem] border border-slate-200/80 bg-slate-50/80 p-3">
-        <div className="mb-3 flex items-center justify-between gap-3 px-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Tags</p>
-          <p className="text-xs text-slate-400">Más usadas primero</p>
+        <div className="mb-3 px-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Bloques</p>
         </div>
 
         <div className="max-h-[10.5rem] overflow-y-auto overscroll-contain pr-1">
           <div className="flex flex-wrap gap-2">
-            {sortedTags.map((tag) => {
-              const active = selectedTags.includes(tag.nombre);
+            {sortedBlocks.map((block) => {
+              const active = selectedBlocks.includes(block.nombre);
               return (
                 <div
-                  key={tag.nombre}
+                  key={block.id}
                   className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                     active
                       ? 'border-amber-500 bg-amber-100 text-amber-900'
@@ -118,9 +110,8 @@ export function SearchToolbar({
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <button onClick={() => onToggleTag(tag.nombre)}>
-                      {tag.nombre}
-                      <span className="ml-1 text-[11px] text-slate-400">({tag.frecuencia ?? 0})</span>
+                    <button onClick={() => onToggleBlock(block.nombre)}>
+                      {block.nombre}
                     </button>
                   </div>
                 </div>

@@ -11,17 +11,17 @@ import type { ContentListItem, ProcessingResponse } from '../types/content';
 
 export function KnowledgeRepositoryPage() {
   const [search, setSearch] = useState('');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedBlocks, setSelectedBlocks] = useState<string[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ContentListItem | null>(null);
   const [processingResponse, setProcessingResponse] = useState<ProcessingResponse | null>(null);
-  const { items, tags, tagCatalog, loading, error, refresh, libraryDocxUrl, syncLibraryDocx, regenerateExistingDocuments, deleteContent, saveTagCatalog } = useContents(search, selectedTags);
+  const { items, tagCatalog, loading, error, refresh, libraryDocxUrl, syncLibraryDocx, regenerateExistingDocuments, deleteContent, saveTagCatalog } = useContents(search, selectedBlocks);
 
-  const toggleFilterTag = (tagName: string) => {
-    setSelectedTags((current) =>
-      current.includes(tagName) ? current.filter((tag) => tag !== tagName) : [...current, tagName],
+  const toggleFilterBlock = (blockName: string) => {
+    setSelectedBlocks((current) =>
+      current.includes(blockName) ? current.filter((block) => block !== blockName) : [...current, blockName],
     );
   };
 
@@ -46,9 +46,9 @@ export function KnowledgeRepositoryPage() {
         <SearchToolbar
           search={search}
           onSearchChange={setSearch}
-          availableTags={tags}
-          selectedTags={selectedTags}
-          onToggleTag={toggleFilterTag}
+          availableBlocks={tagCatalog}
+          selectedBlocks={selectedBlocks}
+          onToggleBlock={toggleFilterBlock}
           onOpenCatalog={() => setCatalogOpen(true)}
           onCreateNew={() => setUploadOpen(true)}
           libraryDocxUrl={libraryDocxUrl}

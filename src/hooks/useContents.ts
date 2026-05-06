@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { deleteContent, fetchContents, fetchLibraryDocxUrl, fetchTagCatalog, fetchTags, regenerateExistingDocuments, syncLibraryDocx, updateTagCatalog } from '../lib/api';
 import type { ContentListItem, TagCatalogBlock, TagOption } from '../types/content';
 
-export function useContents(search: string, selectedTags: string[]) {
+export function useContents(search: string, selectedBlocks: string[]) {
   const [items, setItems] = useState<ContentListItem[]>([]);
   const [tags, setTags] = useState<TagOption[]>([]);
   const [tagCatalog, setTagCatalog] = useState<TagCatalogBlock[]>([]);
@@ -15,6 +15,16 @@ export function useContents(search: string, selectedTags: string[]) {
     setError(null);
 
     try {
+      const selectedTags = selectedBlocks.length
+        ? Array.from(
+            new Set(
+              tagCatalog
+                .filter((block) => selectedBlocks.includes(block.nombre))
+                .flatMap((block) => block.tags),
+            ),
+          )
+        : [];
+
       const data = await fetchContents(search, selectedTags);
       setItems(data);
     } catch (loadError) {
@@ -53,7 +63,7 @@ export function useContents(search: string, selectedTags: string[]) {
 
   useEffect(() => {
     loadContents();
-  }, [search, selectedTags.join('|')]);
+  }, [search, selectedBlocks.join('|'), tagCatalog.map((block) => `${block.nombre}:${block.tags.join('|')}`).join('||')]);
 
   useEffect(() => {
     loadTags();
