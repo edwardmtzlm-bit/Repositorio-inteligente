@@ -1,4 +1,4 @@
-import { Bot, Loader2, Send, Sparkles, X } from 'lucide-react';
+import { Bot, Loader2, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { useState } from 'react';
 import { queryRepositoryAssistant } from '../lib/api';
 import type { RepositoryAssistantMatch, RepositoryAssistantResponse } from '../types/content';
@@ -28,6 +28,13 @@ export function RepositoryAssistantPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<RepositoryAssistantResponse | null>(null);
+
+  const resetAssistant = () => {
+    setQuestion('');
+    setError(null);
+    setResponse(null);
+    onResults(null);
+  };
 
   if (!open) {
     return null;
@@ -89,6 +96,14 @@ export function RepositoryAssistantPanel({
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               {loading ? 'Consultando...' : 'Consultar'}
+            </button>
+            <button
+              onClick={resetAssistant}
+              disabled={loading || (!question.trim() && !response && !error)}
+              className="mt-3 ml-2 inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-950 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Limpiar
             </button>
           </section>
 
