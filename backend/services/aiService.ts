@@ -38,6 +38,49 @@ export interface RepositoryAssistantResult {
   reviewedItems: Array<{ id: string; title: string; summary: string }>;
 }
 
+export async function transcribeAudioBuffer(buffer: Buffer, mimeType: string, originalName: string) {
+  const genAI = getGenAI();
+  const prompt = `
+Transcribe este audio al español.
+
+Instrucciones:
+1. Devuelve solo la transcripción.
+2. No resumas.
+3. Si el audio ya está en español, respétalo.
+4. Si mezcla inglés y español, conserva el sentido y normaliza al español cuando sea razonable.
+5. Si hay fragmentos ininteligibles, marca [inaudible].
+6. No agregues encabezados ni notas extra.
+
+Nombre de archivo: ${originalName}
+`;
+
+  const result = await genAI.models.generateContent({
+    model,
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { text: prompt },
+          {
+            inlineData: {
+              mimeType,
+              data: buffer.toString('base64'),
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const transcription = result.text?.trim();
+
+  if (!transcription) {
+    throw new Error('La IA no devolvió una transcripción para el audio.');
+  }
+
+  return transcription;
+}
+
 function normalizeOcrText(text: string) {
   return text
     .replace(/\r\n/g, '\n')

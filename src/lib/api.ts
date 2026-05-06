@@ -1,15 +1,30 @@
-import type { ContentListItem, ProcessingMode, ProcessingResponse, RepositoryAssistantResponse, SaveContentPayload, TagCatalogBlock, TagOption } from '../types/content';
+import type { ContentAudioNote, ContentListItem, ProcessingMode, ProcessingResponse, RepositoryAssistantResponse, SaveContentPayload, TagCatalogBlock, TagOption } from '../types/content';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
+const CONFIGURED_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
+
+function shouldUseLocalApi() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+}
 
 function apiUrl(path: string) {
+  const API_BASE_URL = shouldUseLocalApi() ? '' : CONFIGURED_API_BASE_URL;
   return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
+  const contentType = response.headers.get('content-type') || '';
+
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
+    const errorBody = contentType.includes('application/json') ? await response.json().catch(() => null) : null;
     throw new Error(errorBody?.error || 'Error inesperado en la API');
+  }
+
+  if (!contentType.includes('application/json')) {
+    throw new Error('La API devolvió una respuesta HTML en lugar de JSON. Revisa que el backend correcto esté corriendo y actualizado.');
   }
 
   return response.json() as Promise<T>;
@@ -187,4 +202,40 @@ export async function queryRepositoryAssistant(question: string) {
   });
 
   return parseJson<RepositoryAssistantResponse>(response);
+}
+
+export async function fetchContentAudioNotes(contentId: string) {
+  const response = await fetch(apiUrl(`/api/contents/${contentId}/audio`), {
+    cache: 'no-store',
+  });
+
+  return parseJson<{ notes: ContentAudioNote[] }>(response);
+}
+
+export async function uploadContentAudio(contentId: string, file: File) {
+  const formData = new FormData();
+  formData.append('audio', file);
+
+  const response = await fetch(apiUrl(`/api/contents/${contentId}/audio`), {
+    method: 'POST',
+    body: formData,
+  });
+
+  return parseJson<{ notes: ContentAudioNote[] }>(response);
+}
+
+export async function transcribeContentAudio(contentId: string, fileName: string) {
+  const response = await fetch(apiUrl(`/api/contents/${contentId}/audio/${encodeURIComponent(fileName)}/transcribe`), {
+    method: 'POST',
+  });
+
+  return parseJson<{ notes: ContentAudioNote[] }>(response);
+}
+
+export async function deleteContentAudio(contentId: string, fileName: string) {
+  const response = await fetch(apiUrl(`/api/contents/${contentId}/audio/${encodeURIComponent(fileName)}`), {
+    method: 'DELETE',
+  });
+
+  return parseJson<{ notes: ContentAudioNote[] }>(response);
 }

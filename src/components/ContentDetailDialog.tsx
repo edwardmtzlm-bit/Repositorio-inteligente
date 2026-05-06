@@ -1,8 +1,8 @@
-import { Download, ExternalLink, FilePlus2, FileText, Images, Loader2, Save, Sparkles, Tag, Trash2, X } from 'lucide-react';
+import { Download, ExternalLink, FilePlus2, FileText, Images, Loader2, Mic, Save, Sparkles, Tag, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { appendContentImages, enrichContent, updateContentMetadata, uploadExtraImages } from '../lib/api';
+import { appendContentImages, deleteContentAudio, enrichContent, fetchContentAudioNotes, transcribeContentAudio, updateContentMetadata, uploadContentAudio, uploadExtraImages } from '../lib/api';
 import { formatTextForReading } from '../lib/documentTextFormatter';
-import type { ContentListItem } from '../types/content';
+import type { ContentAudioNote, ContentListItem } from '../types/content';
 
 interface ContentDetailDialogProps {
   item: ContentListItem | null;
@@ -19,9 +19,15 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
   const [updating, setUpdating] = useState(false);
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
+  const [audioNotes, setAudioNotes] = useState<ContentAudioNote[]>([]);
+  const [loadingAudioNotes, setLoadingAudioNotes] = useState(false);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
+  const [transcribingAudioFile, setTranscribingAudioFile] = useState<string | null>(null);
+  const [deletingAudioFile, setDeletingAudioFile] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
   const inventorySectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -34,6 +40,37 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
     setNotesDraft(item.notas || '');
     setSelectedImageUrl(null);
     setError(null);
+  }, [item]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!item) {
+      setAudioNotes([]);
+      return;
+    }
+
+    setLoadingAudioNotes(true);
+    void fetchContentAudioNotes(item.id)
+      .then((result) => {
+        if (!cancelled) {
+          setAudioNotes(result.notes);
+        }
+      })
+      .catch((audioError) => {
+        if (!cancelled) {
+          setError(audioError instanceof Error ? audioError.message : 'No fue posible cargar los audios adjuntos.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingAudioNotes(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [item]);
 
   if (!item) {
@@ -181,6 +218,63 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
     }
   };
 
+  const handleAudioSelected = async (files?: FileList | null) => {
+    const selectedFile = files?.[0];
+
+    if (!selectedFile) {
+      return;
+    }
+
+    setUploadingAudio(true);
+    setError(null);
+
+    try {
+      const { notes } = await uploadContentAudio(item.id, selectedFile);
+      setAudioNotes(notes);
+    } catch (audioError) {
+      setError(audioError instanceof Error ? audioError.message : 'No fue posible adjuntar el audio.');
+    } finally {
+      setUploadingAudio(false);
+      if (audioInputRef.current) {
+        audioInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleDeleteAudio = async (fileName: string) => {
+    const shouldDelete = window.confirm('¿Eliminar este audio adjunto?');
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setDeletingAudioFile(fileName);
+    setError(null);
+
+    try {
+      const { notes } = await deleteContentAudio(item.id, fileName);
+      setAudioNotes(notes);
+    } catch (audioError) {
+      setError(audioError instanceof Error ? audioError.message : 'No fue posible eliminar el audio adjunto.');
+    } finally {
+      setDeletingAudioFile(null);
+    }
+  };
+
+  const handleTranscribeAudio = async (fileName: string) => {
+    setTranscribingAudioFile(fileName);
+    setError(null);
+
+    try {
+      const { notes } = await transcribeContentAudio(item.id, fileName);
+      setAudioNotes(notes);
+    } catch (audioError) {
+      setError(audioError instanceof Error ? audioError.message : 'No fue posible transcribir el audio adjunto.');
+    } finally {
+      setTranscribingAudioFile(null);
+    }
+  };
+
   const handleDelete = async () => {
     const shouldDelete = window.confirm(`¿Eliminar "${item.titulo}"?\n\nEsto también lo quitará del doc general.`);
 
@@ -259,6 +353,13 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
               className="hidden"
               onChange={(event) => void handleExtraImagesSelected(event.target.files)}
             />
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(event) => void handleAudioSelected(event.target.files)}
+            />
 
             <div className="flex flex-wrap items-center gap-3">
               {(item.fuente_url || hasImageSource) && (
@@ -303,6 +404,85 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
                 </button>
                 <span className="text-xs text-slate-500">Este cambio actualiza el Word individual y el Google Doc general.</span>
               </div>
+            </section>
+
+            <section className="rounded-[1.5rem] border border-slate-200 p-6">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Mic className="h-4 w-4 text-slate-500" />
+                  <p className="text-sm font-semibold text-slate-800">Adjuntar audio</p>
+                  <span className="text-xs text-slate-400">{audioNotes.length}</span>
+                </div>
+                <button
+                  onClick={() => audioInputRef.current?.click()}
+                  disabled={uploadingAudio}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-950 disabled:opacity-60"
+                >
+                  {uploadingAudio ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+                  {uploadingAudio ? 'Subiendo...' : 'Adjuntar audio'}
+                </button>
+              </div>
+
+              {loadingAudioNotes ? (
+                <div className="flex items-center gap-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Cargando audios...
+                </div>
+              ) : audioNotes.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                  Este artículo todavía no tiene audios adjuntos.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {audioNotes.map((note) => (
+                    <div key={note.fileName} className="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{note.originalName}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {new Date(note.uploadedAt).toLocaleString('es-MX')}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => void handleTranscribeAudio(note.fileName)}
+                            disabled={transcribingAudioFile === note.fileName}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-950 disabled:opacity-60"
+                          >
+                            {transcribingAudioFile === note.fileName ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                            {note.transcription ? 'Volver a transcribir' : 'Transcribir'}
+                          </button>
+                          <button
+                            onClick={() => void handleDeleteAudio(note.fileName)}
+                            disabled={deletingAudioFile === note.fileName}
+                            className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:border-red-500 hover:bg-red-50 disabled:opacity-60"
+                          >
+                            {deletingAudioFile === note.fileName ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+
+                      <audio controls className="mt-4 w-full">
+                        <source src={note.fileUrl} type={note.mimeType} />
+                        Tu navegador no soporta la reproducción de este audio.
+                      </audio>
+
+                      {note.transcription && (
+                        <div className="mt-4 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Transcripción</p>
+                            {note.transcribedAt && (
+                              <span className="text-xs text-slate-400">{new Date(note.transcribedAt).toLocaleString('es-MX')}</span>
+                            )}
+                          </div>
+                          <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">{note.transcription}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="rounded-[1.5rem] border border-slate-200 p-6">

@@ -30,6 +30,16 @@ export interface ContentListItem {
   tags: TagOption[];
 }
 
+export interface ContentAudioNote {
+  fileName: string;
+  originalName: string;
+  fileUrl: string;
+  mimeType: string;
+  uploadedAt: string;
+  transcription: string | null;
+  transcribedAt: string | null;
+}
+
 export interface RepositoryAssistantResponse {
   answer: string;
   matchedContentIds: string[];

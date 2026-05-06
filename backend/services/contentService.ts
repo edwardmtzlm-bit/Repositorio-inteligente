@@ -1,6 +1,7 @@
 import { generateDocxBuffer } from './docxService';
 import { appendContentToGeneralGoogleDoc, getGeneralGoogleDocUrl, syncContentsToGeneralGoogleDoc } from './googleDocsService';
-import { answerRepositoryQuestion, generateKnowledgeMetadata } from './aiService';
+import { answerRepositoryQuestion, generateKnowledgeMetadata, transcribeAudioBuffer } from './aiService';
+import { deleteContentAudioNote, downloadContentAudioNote, listContentAudioNotes, removeAllContentAudioNotes, updateAudioTranscription, uploadContentAudioNote } from './contentAudioService';
 import { detectLanguage } from './languageService';
 import { getCatalogTagBlockLookup, getTagCatalog } from './tagCatalogService';
 import { uploadDocx } from './storageService';
@@ -145,6 +146,14 @@ function hydrateRelationTags(relations: any[], tagToBlock: Map<string, string>) 
         ]
       : [],
   );
+}
+
+async function ensureContentExists(contentId: string) {
+  const { data, error } = await supabaseAdmin.from('contenidos').select('id').eq('id', contentId).single();
+
+  if (error || !data) {
+    throw new Error(`No fue posible cargar el contenido solicitado: ${error?.message}`);
+  }
 }
 
 export async function listContents(search = '', tags: string[] = []) {
@@ -628,6 +637,36 @@ export async function appendImagesToContent(contentId: string, imageUrls: string
   return updatedItem;
 }
 
+export async function getContentAudioNotes(contentId: string) {
+  await ensureContentExists(contentId);
+  return listContentAudioNotes(contentId);
+}
+
+export async function attachAudioToContent(contentId: string, file: Buffer, mimeType: string, originalName: string) {
+  await ensureContentExists(contentId);
+  return uploadContentAudioNote(contentId, file, mimeType, originalName);
+}
+
+export async function removeAudioFromContent(contentId: string, fileName: string) {
+  await ensureContentExists(contentId);
+  return deleteContentAudioNote(contentId, fileName);
+}
+
+export async function transcribeContentAudio(contentId: string, fileName: string) {
+  await ensureContentExists(contentId);
+  const notes = await listContentAudioNotes(contentId);
+  const targetNote = notes.find((note) => note.fileName === fileName);
+
+  if (!targetNote) {
+    throw new Error('No se encontró el audio solicitado para transcribir.');
+  }
+
+  const fileBuffer = await downloadContentAudioNote(contentId, fileName);
+  const transcription = await transcribeAudioBuffer(fileBuffer, targetNote.mimeType, targetNote.originalName);
+
+  return updateAudioTranscription(contentId, fileName, transcription);
+}
+
 export async function deleteContent(contentId: string) {
   const { data: currentContent, error: contentError } = await supabaseAdmin
     .from('contenidos')
@@ -687,6 +726,12 @@ export async function deleteContent(contentId: string) {
 
   if (remainingContent) {
     throw new Error(`El contenido "${currentContent.titulo}" sigue existiendo después del intento de borrado.`);
+  }
+
+  try {
+    await removeAllContentAudioNotes(contentId);
+  } catch (audioCleanupError) {
+    console.warn(`No fue posible limpiar audios del contenido eliminado ${contentId}:`, audioCleanupError);
   }
 
   await rebuildGeneralDocFromDatabase();
