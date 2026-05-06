@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import { deleteContent, fetchContents, fetchLibraryDocxUrl, fetchTagCatalog, fetchTags, regenerateExistingDocuments, syncLibraryDocx, updateTagCatalog } from '../lib/api';
-import type { ContentListItem, TagCatalogBlock, TagOption } from '../types/content';
+import { deleteContent, fetchContents, fetchLibraryDocxUrl, fetchTagCatalog, regenerateExistingDocuments, syncLibraryDocx, updateTagCatalog } from '../lib/api';
+import type { ContentListItem, TagCatalogBlock } from '../types/content';
 
 export function useContents(search: string, selectedBlocks: string[]) {
   const [items, setItems] = useState<ContentListItem[]>([]);
-  const [tags, setTags] = useState<TagOption[]>([]);
   const [tagCatalog, setTagCatalog] = useState<TagCatalogBlock[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,15 +33,6 @@ export function useContents(search: string, selectedBlocks: string[]) {
     }
   };
 
-  const loadTags = async () => {
-    try {
-      const data = await fetchTags();
-      setTags(data);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'No fue posible cargar tags');
-    }
-  };
-
   const loadTagCatalog = async () => {
     try {
       const data = await fetchTagCatalog();
@@ -66,19 +56,17 @@ export function useContents(search: string, selectedBlocks: string[]) {
   }, [search, selectedBlocks.join('|'), tagCatalog.map((block) => `${block.nombre}:${block.tags.join('|')}`).join('||')]);
 
   useEffect(() => {
-    loadTags();
     loadTagCatalog();
     loadLibraryDocx();
   }, []);
 
   return {
     items,
-    tags,
     tagCatalog,
     loading,
     error,
     refresh: async () => {
-      await Promise.all([loadContents(), loadTags(), loadTagCatalog(), loadLibraryDocx()]);
+      await Promise.all([loadContents(), loadTagCatalog(), loadLibraryDocx()]);
     },
     libraryDocxUrl,
     syncLibraryDocx: async () => {
@@ -93,7 +81,7 @@ export function useContents(search: string, selectedBlocks: string[]) {
       const result = await deleteContent(contentId);
       setItems((current) => current.filter((item) => item.id !== contentId));
       setLibraryDocxUrl(result.libraryDocxUrl);
-      await Promise.all([loadContents(), loadTags(), loadLibraryDocx()]);
+      await Promise.all([loadContents(), loadLibraryDocx()]);
     },
     saveTagCatalog: async (blocks: TagCatalogBlock[]) => {
       const result = await updateTagCatalog(blocks);

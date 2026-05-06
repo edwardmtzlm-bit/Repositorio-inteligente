@@ -194,8 +194,13 @@ async function downloadStoredCatalog() {
 }
 
 export async function getTagCatalog() {
-  const storedBlocks = await downloadStoredCatalog();
-  return sanitizeBlocks(storedBlocks ?? defaultCatalog);
+  try {
+    const storedBlocks = await downloadStoredCatalog();
+    return sanitizeBlocks(storedBlocks ?? defaultCatalog);
+  } catch (error) {
+    console.error('Fallo al cargar catalogo remoto de tags; usando catalogo por defecto.', error);
+    return sanitizeBlocks(defaultCatalog);
+  }
 }
 
 export async function saveTagCatalog(blocks: TagCatalogBlock[]) {
