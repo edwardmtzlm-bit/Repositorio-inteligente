@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { deleteContent, deleteTag, fetchContents, fetchLibraryDocxUrl, fetchTags, regenerateExistingDocuments, syncLibraryDocx } from '../lib/api';
-import type { ContentListItem, TagOption } from '../types/content';
+import { deleteContent, fetchContents, fetchLibraryDocxUrl, fetchTagCatalog, fetchTags, regenerateExistingDocuments, syncLibraryDocx, updateTagCatalog } from '../lib/api';
+import type { ContentListItem, TagCatalogBlock, TagOption } from '../types/content';
 
 export function useContents(search: string, selectedTags: string[]) {
   const [items, setItems] = useState<ContentListItem[]>([]);
   const [tags, setTags] = useState<TagOption[]>([]);
+  const [tagCatalog, setTagCatalog] = useState<TagCatalogBlock[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [libraryDocxUrl, setLibraryDocxUrl] = useState('');
@@ -32,6 +33,15 @@ export function useContents(search: string, selectedTags: string[]) {
     }
   };
 
+  const loadTagCatalog = async () => {
+    try {
+      const data = await fetchTagCatalog();
+      setTagCatalog(data.blocks);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'No fue posible cargar el catalogo de tags');
+    }
+  };
+
   const loadLibraryDocx = async () => {
     try {
       const data = await fetchLibraryDocxUrl();
@@ -47,16 +57,18 @@ export function useContents(search: string, selectedTags: string[]) {
 
   useEffect(() => {
     loadTags();
+    loadTagCatalog();
     loadLibraryDocx();
   }, []);
 
   return {
     items,
     tags,
+    tagCatalog,
     loading,
     error,
     refresh: async () => {
-      await Promise.all([loadContents(), loadTags(), loadLibraryDocx()]);
+      await Promise.all([loadContents(), loadTags(), loadTagCatalog(), loadLibraryDocx()]);
     },
     libraryDocxUrl,
     syncLibraryDocx: async () => {
@@ -67,21 +79,16 @@ export function useContents(search: string, selectedTags: string[]) {
       await regenerateExistingDocuments();
       await Promise.all([loadContents(), loadLibraryDocx()]);
     },
-    deleteTag: async (tagId: string, tagName: string) => {
-      await deleteTag(tagId);
-      setTags((current) => current.filter((tag) => tag.id !== tagId));
-      setItems((current) =>
-        current.map((item) => ({
-          ...item,
-          tags: item.tags.filter((tag) => tag.nombre !== tagName),
-        })),
-      );
-    },
     deleteContent: async (contentId: string) => {
       const result = await deleteContent(contentId);
       setItems((current) => current.filter((item) => item.id !== contentId));
       setLibraryDocxUrl(result.libraryDocxUrl);
       await Promise.all([loadContents(), loadTags(), loadLibraryDocx()]);
+    },
+    saveTagCatalog: async (blocks: TagCatalogBlock[]) => {
+      const result = await updateTagCatalog(blocks);
+      setTagCatalog(result.blocks);
+      return result.blocks;
     },
   };
 }

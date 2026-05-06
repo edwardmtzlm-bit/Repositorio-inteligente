@@ -4,6 +4,7 @@ import { ConfirmationPanel } from '../components/ConfirmationPanel';
 import { ContentCard } from '../components/ContentCard';
 import { ContentDetailDialog } from '../components/ContentDetailDialog';
 import { SearchToolbar } from '../components/SearchToolbar';
+import { TagCatalogDialog } from '../components/TagCatalogDialog';
 import { UploadDialog } from '../components/UploadDialog';
 import { useContents } from '../hooks/useContents';
 import type { ContentListItem, ProcessingResponse } from '../types/content';
@@ -13,9 +14,10 @@ export function KnowledgeRepositoryPage() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ContentListItem | null>(null);
   const [processingResponse, setProcessingResponse] = useState<ProcessingResponse | null>(null);
-  const { items, tags, loading, error, refresh, libraryDocxUrl, syncLibraryDocx, regenerateExistingDocuments, deleteTag, deleteContent } = useContents(search, selectedTags);
+  const { items, tags, tagCatalog, loading, error, refresh, libraryDocxUrl, syncLibraryDocx, regenerateExistingDocuments, deleteContent, saveTagCatalog } = useContents(search, selectedTags);
 
   const toggleFilterTag = (tagName: string) => {
     setSelectedTags((current) =>
@@ -47,14 +49,11 @@ export function KnowledgeRepositoryPage() {
           availableTags={tags}
           selectedTags={selectedTags}
           onToggleTag={toggleFilterTag}
+          onOpenCatalog={() => setCatalogOpen(true)}
           onCreateNew={() => setUploadOpen(true)}
           libraryDocxUrl={libraryDocxUrl}
           onSyncLibraryDocx={syncLibraryDocx}
           onRegenerateExistingDocuments={regenerateExistingDocuments}
-          onDeleteTag={async (tag) => {
-            await deleteTag(tag.id!, tag.nombre);
-            setSelectedTags((current) => current.filter((name) => name !== tag.nombre));
-          }}
         />
 
         {error && <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
@@ -96,6 +95,16 @@ export function KnowledgeRepositoryPage() {
           setProcessingResponse(null);
         }}
         onSaved={refresh}
+      />
+
+      <TagCatalogDialog
+        open={catalogOpen}
+        blocks={tagCatalog}
+        onClose={() => setCatalogOpen(false)}
+        onSave={async (blocks) => {
+          await saveTagCatalog(blocks);
+          await refresh();
+        }}
       />
 
       <ContentDetailDialog

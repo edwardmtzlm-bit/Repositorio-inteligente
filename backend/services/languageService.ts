@@ -14,9 +14,9 @@ const englishStopwords = new Set([
 ]);
 
 function scoreStopwords(text: string, vocabulary: Set<string>) {
-  const words = text.toLowerCase().match(/[a-záéíóúñü]+/gi) ?? [];
+  const words: string[] = text.toLowerCase().match(/[a-záéíóúñü]+/gi) ?? [];
 
-  return words.reduce((total, word) => total + (vocabulary.has(word) ? 1 : 0), 0);
+  return words.reduce((total: number, word) => total + (vocabulary.has(word) ? 1 : 0), 0);
 }
 
 export function detectLanguage(text: string): 'es' | 'en' {

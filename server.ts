@@ -23,10 +23,11 @@ function parseCorsOrigins(value?: string) {
 async function startServer() {
   const app = express();
   const port = Number(process.env.PORT || 3000);
-  const [{ processRouter }, { searchRouter }, { tagsRouter }] = await Promise.all([
+  const [{ processRouter }, { searchRouter }, { tagsRouter }, { tagCatalogRouter }] = await Promise.all([
     import('./backend/routes/process'),
     import('./backend/routes/search'),
     import('./backend/routes/tags'),
+    import('./backend/routes/tagCatalog'),
   ]);
 
   app.use(cors({ origin: parseCorsOrigins(process.env.CORS_ORIGIN) }));
@@ -36,6 +37,7 @@ async function startServer() {
   app.use('/api/process-image', processRouter);
   app.use('/api', searchRouter);
   app.use('/api/tags', tagsRouter);
+  app.use('/api/tag-catalog', tagCatalogRouter);
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

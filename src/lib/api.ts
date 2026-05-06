@@ -1,4 +1,4 @@
-import type { ContentListItem, ProcessingMode, ProcessingResponse, SaveContentPayload, TagOption } from '../types/content';
+import type { ContentListItem, ProcessingMode, ProcessingResponse, SaveContentPayload, TagCatalogBlock, TagOption } from '../types/content';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
 
@@ -37,6 +37,25 @@ export async function fetchTags() {
     cache: 'no-store',
   });
   return parseJson<TagOption[]>(response);
+}
+
+export async function fetchTagCatalog() {
+  const response = await fetch(apiUrl('/api/tag-catalog'), {
+    cache: 'no-store',
+  });
+  return parseJson<{ blocks: TagCatalogBlock[] }>(response);
+}
+
+export async function updateTagCatalog(blocks: TagCatalogBlock[]) {
+  const response = await fetch(apiUrl('/api/tag-catalog'), {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ blocks }),
+  });
+
+  return parseJson<{ blocks: TagCatalogBlock[] }>(response);
 }
 
 export async function deleteTag(tagId: string) {

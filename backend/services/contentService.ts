@@ -2,6 +2,7 @@ import { generateDocxBuffer } from './docxService';
 import { appendContentToGeneralGoogleDoc, getGeneralGoogleDocUrl, syncContentsToGeneralGoogleDoc } from './googleDocsService';
 import { generateKnowledgeMetadata } from './aiService';
 import { detectLanguage } from './languageService';
+import { getCatalogTagBlockLookup, getTagCatalog } from './tagCatalogService';
 import { uploadDocx } from './storageService';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { ensureTags, type TagRecord } from './tagService';
@@ -106,7 +107,23 @@ async function rebuildGeneralDocFromDatabase() {
   );
 }
 
+function hydrateRelationTags(relations: any[], tagToBlock: Map<string, string>) {
+  return (relations || []).flatMap((relation: any) =>
+    relation.tags
+      ? [
+          {
+            ...relation.tags,
+            exists: true,
+            source: 'existing',
+            bloque: tagToBlock.get(relation.tags.nombre.toLowerCase()) ?? null,
+          },
+        ]
+      : [],
+  );
+}
+
 export async function listContents(search = '', tags: string[] = []) {
+  const { tagToBlock } = await getCatalogTagBlockLookup();
   let query = supabaseAdmin
     .from('contenidos')
     .select(
@@ -192,17 +209,7 @@ export async function listContents(search = '', tags: string[] = []) {
     texto_traducido: item.texto_traducido,
     fecha: item.fecha,
     docx_url: item.docx_url,
-    tags: (item.contenido_tags || []).flatMap((relation: any) =>
-      relation.tags
-        ? [
-            {
-              ...relation.tags,
-              exists: true,
-              source: 'existing',
-            },
-          ]
-        : [],
-    ),
+    tags: hydrateRelationTags(item.contenido_tags || [], tagToBlock),
   }));
 }
 
@@ -365,7 +372,8 @@ export async function enrichContent(contentId: string, supplementalText: string)
     .filter(Boolean)
     .join('\n\n=== TEXTO COMPLEMENTARIO ===\n\n');
   const language = detectLanguage(combinedOriginalText);
-  const metadata = await generateKnowledgeMetadata(combinedOriginalText, language);
+  const tagCatalog = await getTagCatalog();
+  const metadata = await generateKnowledgeMetadata(combinedOriginalText, language, tagCatalog);
   const selectedTags = metadata.tags.map((tag) => ({
     id: null,
     nombre: tag,
@@ -452,6 +460,8 @@ export async function enrichContent(contentId: string, supplementalText: string)
     throw new Error(`No fue posible recargar el contenido actualizado: ${refreshedError?.message}`);
   }
 
+  const { tagToBlock } = await getCatalogTagBlockLookup();
+
   return {
     id: refreshedContent.id,
     imagen_url: refreshedContent.imagen_url,
@@ -465,17 +475,7 @@ export async function enrichContent(contentId: string, supplementalText: string)
     texto_traducido: refreshedContent.texto_traducido,
     fecha: refreshedContent.fecha,
     docx_url: refreshedContent.docx_url,
-    tags: (refreshedContent.contenido_tags || []).flatMap((relation: any) =>
-      relation.tags
-        ? [
-            {
-              ...relation.tags,
-              exists: true,
-              source: 'existing',
-            },
-          ]
-        : [],
-    ),
+    tags: hydrateRelationTags(refreshedContent.contenido_tags || [], tagToBlock),
   };
 }
 

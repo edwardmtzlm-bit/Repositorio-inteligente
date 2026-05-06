@@ -1,5 +1,5 @@
-import { BookOpenText, PencilLine, Plus, RefreshCw, Search, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { BookOpenText, FolderTree, Plus, RefreshCw, Search } from 'lucide-react';
+import { useMemo } from 'react';
 import type { TagOption } from '../types/content';
 
 interface SearchToolbarProps {
@@ -8,11 +8,11 @@ interface SearchToolbarProps {
   availableTags: TagOption[];
   selectedTags: string[];
   onToggleTag: (tagName: string) => void;
+  onOpenCatalog: () => void;
   onCreateNew: () => void;
   libraryDocxUrl: string;
   onSyncLibraryDocx: () => Promise<void>;
   onRegenerateExistingDocuments: () => Promise<void>;
-  onDeleteTag: (tag: TagOption) => Promise<void>;
 }
 
 export function SearchToolbar({
@@ -21,14 +21,12 @@ export function SearchToolbar({
   availableTags,
   selectedTags,
   onToggleTag,
+  onOpenCatalog,
   onCreateNew,
   libraryDocxUrl,
   onSyncLibraryDocx,
   onRegenerateExistingDocuments,
-  onDeleteTag,
 }: SearchToolbarProps) {
-  const [isManagingTags, setIsManagingTags] = useState(false);
-  const [deletingTagId, setDeletingTagId] = useState<string | null>(null);
   const sortedTags = useMemo(
     () =>
       [...availableTags].sort((left, right) => {
@@ -57,15 +55,11 @@ export function SearchToolbar({
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <button
-            onClick={() => setIsManagingTags((current) => !current)}
-            className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-5 py-3 text-sm font-semibold transition ${
-              isManagingTags
-                ? 'border-amber-500 bg-amber-50 text-amber-900'
-                : 'border-slate-200 bg-white text-slate-800 hover:border-slate-950'
-            }`}
+            onClick={onOpenCatalog}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-slate-950"
           >
-            <PencilLine className="h-4 w-4" />
-            {isManagingTags ? 'Terminar edición' : 'Editar tags'}
+            <FolderTree className="h-4 w-4" />
+            Editar catalogo
           </button>
           <button
             onClick={() => void onSyncLibraryDocx()}
@@ -128,28 +122,6 @@ export function SearchToolbar({
                       {tag.nombre}
                       <span className="ml-1 text-[11px] text-slate-400">({tag.frecuencia ?? 0})</span>
                     </button>
-                    {isManagingTags && tag.id && (
-                      <button
-                        onClick={async () => {
-                          const confirmed = window.confirm(`¿Eliminar el tag "${tag.nombre}"? Se quitará de los contenidos donde esté asociado.`);
-                          if (!confirmed) {
-                            return;
-                          }
-
-                          setDeletingTagId(tag.id);
-                          try {
-                            await onDeleteTag(tag);
-                          } finally {
-                            setDeletingTagId(null);
-                          }
-                        }}
-                        disabled={deletingTagId === tag.id}
-                        className="rounded-full p-0.5 text-red-500 transition hover:bg-red-50 disabled:text-slate-300"
-                        title={`Eliminar ${tag.nombre}`}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    )}
                   </div>
                 </div>
               );

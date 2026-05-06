@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { getCatalogTagBlockLookup } from './tagCatalogService';
 
 export interface TagRecord {
   id: string | null;
@@ -7,6 +8,7 @@ export interface TagRecord {
   frecuencia: number;
   exists: boolean;
   source: 'existing' | 'ai-suggested' | 'manual-created';
+  bloque: string | null;
 }
 
 function normalizeTagName(name: string) {
@@ -14,6 +16,7 @@ function normalizeTagName(name: string) {
 }
 
 export async function getAllTags(): Promise<TagRecord[]> {
+  const { tagToBlock } = await getCatalogTagBlockLookup();
   const { data, error } = await supabaseAdmin.from('tags').select('id, nombre, tipo, frecuencia').order('nombre');
 
   if (error) {
@@ -24,12 +27,14 @@ export async function getAllTags(): Promise<TagRecord[]> {
     ...tag,
     exists: true,
     source: 'existing',
+    bloque: tagToBlock.get(tag.nombre.toLowerCase()) ?? null,
   })) as TagRecord[];
 }
 
 export async function buildHybridTags(suggestedTags: string[]) {
   const existingTags = await getAllTags();
   const existingMap = new Map(existingTags.map((tag) => [tag.nombre.toLowerCase(), tag]));
+  const { tagToBlock } = await getCatalogTagBlockLookup();
 
   const hybridTags = suggestedTags.map((suggestedTag) => {
     const normalizedName = normalizeTagName(suggestedTag);
@@ -49,6 +54,7 @@ export async function buildHybridTags(suggestedTags: string[]) {
       frecuencia: 0,
       exists: false,
       source: 'ai-suggested' as const,
+      bloque: tagToBlock.get(normalizedName.toLowerCase()) ?? null,
     };
   });
 

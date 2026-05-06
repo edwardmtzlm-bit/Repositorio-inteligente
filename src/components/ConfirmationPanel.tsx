@@ -1,4 +1,4 @@
-import { Download, FilePlus2, FileText, Loader2, Plus, Save, X } from 'lucide-react';
+import { Download, FilePlus2, FileText, Loader2, Save, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { saveContent, uploadExtraImages } from '../lib/api';
 import { formatTextForReading } from '../lib/documentTextFormatter';
@@ -6,8 +6,6 @@ import type { ProcessingDraftGroup, ProcessingResponse, SaveContentPayload, TagO
 
 interface EditableGroup extends ProcessingDraftGroup {
   selectedTagNames: string[];
-  manualTags: TagOption[];
-  newTag: string;
   notes: string;
 }
 
@@ -31,8 +29,6 @@ export function ConfirmationPanel({ data, open, onClose, onSaved }: Confirmation
       (data?.groups ?? []).map((group) => ({
         ...group,
         selectedTagNames: group.suggestedTags.map((tag) => tag.nombre),
-        manualTags: [],
-        newTag: '',
         notes: '',
       })),
     );
@@ -42,7 +38,28 @@ export function ConfirmationPanel({ data, open, onClose, onSaved }: Confirmation
   const groupTags = useMemo(
     () =>
       groups.map((group) =>
-        [...group.suggestedTags, ...group.existingTags, ...group.manualTags].reduce<TagOption[]>((acc, tag) => {
+        [
+          ...group.catalogBlocks.flatMap((block) =>
+            block.tags.map((tagName) => {
+              const existingMatch = [...group.suggestedTags, ...group.existingTags].find(
+                (tag) => tag.nombre.toLowerCase() === tagName.toLowerCase(),
+              );
+
+              return (
+                existingMatch || {
+                  id: null,
+                  nombre: tagName,
+                  tipo: 'manual' as const,
+                  frecuencia: 0,
+                  exists: false,
+                  source: 'manual-created' as const,
+                  bloque: block.nombre,
+                }
+              );
+            }),
+          ),
+          ...group.suggestedTags,
+        ].reduce<TagOption[]>((acc, tag) => {
           if (!acc.some((current) => current.nombre.toLowerCase() === tag.nombre.toLowerCase())) {
             acc.push(tag);
           }
@@ -159,7 +176,7 @@ export function ConfirmationPanel({ data, open, onClose, onSaved }: Confirmation
 
     try {
       for (const group of groups) {
-        const allTags = [...group.suggestedTags, ...group.existingTags, ...group.manualTags];
+        const allTags = groupTags[groups.findIndex((current) => current.id === group.id)] ?? [];
         const selectedTags = group.selectedTagNames.map((tagName) => {
           const match = allTags.find((tag) => tag.nombre === tagName);
           return {
@@ -227,6 +244,15 @@ export function ConfirmationPanel({ data, open, onClose, onSaved }: Confirmation
 
             {groups.map((group, index) => {
               const allTags = groupTags[index] ?? [];
+              const groupedTags = group.catalogBlocks
+                .map((block) => ({
+                  nombre: block.nombre,
+                  tags: allTags.filter((tag) => tag.bloque === block.nombre),
+                }))
+                .filter((block) => block.tags.length > 0);
+              const uncategorizedTags = allTags.filter(
+                (tag) => !tag.bloque || !group.catalogBlocks.some((block) => block.nombre === tag.bloque),
+              );
               const translationWasApplied =
                 group.detectedLanguage === 'en' &&
                 normalizeComparableText(group.translatedText) !== normalizeComparableText(group.originalText);
@@ -366,85 +392,81 @@ export function ConfirmationPanel({ data, open, onClose, onSaved }: Confirmation
 
                       <section className="rounded-[1.5rem] border border-slate-200 p-4">
                         <p className="mb-4 text-sm font-semibold text-slate-800">Tags</p>
-                        <div className="mb-4 flex flex-wrap gap-2">
-                          {allTags.map((tag) => {
-                            const active = group.selectedTagNames.includes(tag.nombre);
-                            const isSuggested = group.suggestedTags.some((suggestedTag) => suggestedTag.nombre === tag.nombre);
-                            return (
-                              <label
-                                key={`${group.id}-${tag.nombre}`}
-                                className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm transition ${
-                                  active ? 'border-amber-500 bg-amber-100 text-amber-950' : 'border-slate-200 bg-white text-slate-600'
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={active}
-                                  onChange={() =>
-                                    updateGroup(group.id, (current) => ({
-                                      ...current,
-                                      selectedTagNames: current.selectedTagNames.includes(tag.nombre)
-                                        ? current.selectedTagNames.filter((name) => name !== tag.nombre)
-                                        : [...current.selectedTagNames, tag.nombre],
-                                    }))
-                                  }
-                                  className="hidden"
-                                />
-                                <span>{tag.nombre}</span>
-                                {isSuggested && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">IA</span>}
-                                {!tag.exists && <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Nuevo</span>}
-                              </label>
-                            );
-                          })}
+                        <div className="space-y-4">
+                          {groupedTags.map((block) => (
+                            <div key={`${group.id}-${block.nombre}`}>
+                              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{block.nombre}</p>
+                              <div className="flex flex-wrap gap-2">
+                                {block.tags.map((tag) => {
+                                  const active = group.selectedTagNames.includes(tag.nombre);
+                                  const isSuggested = group.suggestedTags.some((suggestedTag) => suggestedTag.nombre === tag.nombre);
+                                  return (
+                                    <label
+                                      key={`${group.id}-${block.nombre}-${tag.nombre}`}
+                                      className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm transition ${
+                                        active ? 'border-amber-500 bg-amber-100 text-amber-950' : 'border-slate-200 bg-white text-slate-600'
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={active}
+                                        onChange={() =>
+                                          updateGroup(group.id, (current) => ({
+                                            ...current,
+                                            selectedTagNames: current.selectedTagNames.includes(tag.nombre)
+                                              ? current.selectedTagNames.filter((name) => name !== tag.nombre)
+                                              : [...current.selectedTagNames, tag.nombre],
+                                          }))
+                                        }
+                                        className="hidden"
+                                      />
+                                      <span>{tag.nombre}</span>
+                                      {isSuggested && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">IA</span>}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+
+                          {uncategorizedTags.length > 0 && (
+                            <div>
+                              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Fuera del catalogo</p>
+                              <div className="flex flex-wrap gap-2">
+                                {uncategorizedTags.map((tag) => {
+                                  const active = group.selectedTagNames.includes(tag.nombre);
+                                  return (
+                                    <label
+                                      key={`${group.id}-other-${tag.nombre}`}
+                                      className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm transition ${
+                                        active ? 'border-amber-500 bg-amber-100 text-amber-950' : 'border-slate-200 bg-white text-slate-600'
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={active}
+                                        onChange={() =>
+                                          updateGroup(group.id, (current) => ({
+                                            ...current,
+                                            selectedTagNames: current.selectedTagNames.includes(tag.nombre)
+                                              ? current.selectedTagNames.filter((name) => name !== tag.nombre)
+                                              : [...current.selectedTagNames, tag.nombre],
+                                          }))
+                                        }
+                                        className="hidden"
+                                      />
+                                      <span>{tag.nombre}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
 
-                        <div className="flex flex-col gap-3 sm:flex-row">
-                          <input
-                            value={group.newTag}
-                            onChange={(event) => updateGroup(group.id, (current) => ({ ...current, newTag: event.target.value }))}
-                            placeholder="Crear nuevo tag"
-                            className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-950"
-                          />
-                          <button
-                            onClick={() =>
-                              updateGroup(group.id, (current) => {
-                                const normalized = current.newTag.trim();
-                                if (!normalized) {
-                                  return current;
-                                }
-
-                                const exists = [...current.suggestedTags, ...current.existingTags, ...current.manualTags].some(
-                                  (tag) => tag.nombre.toLowerCase() === normalized.toLowerCase(),
-                                );
-
-                                return {
-                                  ...current,
-                                  manualTags: exists
-                                    ? current.manualTags
-                                    : [
-                                        ...current.manualTags,
-                                        {
-                                          id: null,
-                                          nombre: normalized,
-                                          tipo: 'manual',
-                                          frecuencia: 0,
-                                          exists: false,
-                                          source: 'manual-created',
-                                        },
-                                      ],
-                                  selectedTagNames: current.selectedTagNames.includes(normalized)
-                                    ? current.selectedTagNames
-                                    : [...current.selectedTagNames, normalized],
-                                  newTag: '',
-                                };
-                              })
-                            }
-                            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-950"
-                          >
-                            <Plus className="h-4 w-4" />
-                            + crear nuevo tag
-                          </button>
-                        </div>
+                        <p className="mt-4 text-xs leading-6 text-slate-500">
+                          Para agregar nuevas etiquetas al sistema, usa el submenu <span className="font-semibold text-slate-700">Editar catalogo</span> desde la vista principal.
+                        </p>
                       </section>
                     </div>
                   </div>

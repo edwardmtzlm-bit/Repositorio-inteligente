@@ -5,6 +5,13 @@ export interface TagOption {
   frecuencia: number;
   exists: boolean;
   source: 'existing' | 'ai-suggested' | 'manual-created';
+  bloque: string | null;
+}
+
+export interface TagCatalogBlock {
+  id: string;
+  nombre: string;
+  tags: string[];
 }
 
 export interface ContentListItem {
@@ -40,6 +47,7 @@ export interface ProcessingDraftGroup {
   docxUrl: string;
   suggestedTags: TagOption[];
   existingTags: TagOption[];
+  catalogBlocks: TagCatalogBlock[];
   sourceImageCount: number;
 }
 

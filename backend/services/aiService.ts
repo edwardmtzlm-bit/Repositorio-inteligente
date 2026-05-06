@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { detectLanguage } from './languageService';
+import type { TagCatalogBlock } from './tagCatalogService';
 
 const model = 'gemini-2.5-flash';
 
@@ -94,10 +95,6 @@ function shouldKeepOriginalSpanish(sourceText: string, candidateTranslatedText: 
     return true;
   }
 
-  if (sourceLanguage === 'es' && candidateLanguage === 'es') {
-    return true;
-  }
-
   if (candidateLanguage === 'es' && overlap >= 0.72 && candidateWeirdness > sourceWeirdness + 0.04) {
     return true;
   }
@@ -155,9 +152,23 @@ Devuelve solo el resumen largo.
   return response;
 }
 
-export async function generateKnowledgeMetadata(text: string, language: 'es' | 'en'): Promise<AIProcessingResult> {
+function buildCatalogPrompt(blocks: TagCatalogBlock[]) {
+  return blocks
+    .map(
+      (block) =>
+        `- ${block.nombre}: ${block.tags.join(', ')}`,
+    )
+    .join('\n');
+}
+
+export async function generateKnowledgeMetadata(
+  text: string,
+  language: 'es' | 'en',
+  tagCatalog: TagCatalogBlock[],
+): Promise<AIProcessingResult> {
   const genAI = getGenAI();
   const normalizedSourceText = normalizeOcrText(text);
+  const tagCatalogPrompt = buildCatalogPrompt(tagCatalog);
   const prompt = `
 Eres un sistema que transforma texto OCR en conocimiento útil para una biblioteca personal.
 
@@ -180,7 +191,12 @@ Tareas:
    - redacción profesional y clara
    - suficiente desarrollo para llenar aproximadamente una página de Word
    - no lo hagas breve
-6. Sugiere entre 3 y 6 tags en español, concretos y reutilizables.
+6. Sugiere entre 2 y 6 tags usando exclusivamente la siguiente taxonomía autorizada.
+7. No inventes tags nuevas. Si un tema no encaja perfecto, elige la etiqueta autorizada más cercana.
+8. Puedes combinar tags de uno o varios bloques si el documento realmente lo requiere.
+
+Taxonomía autorizada:
+${tagCatalogPrompt}
 
 Responde solo JSON.
 `;
@@ -231,6 +247,12 @@ Responde solo JSON.
     title,
     summary,
     longSummary: longSummary.trim(),
-    tags: parsed.tags.map((tag) => tag.trim()).filter(Boolean),
+    tags: parsed.tags
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .filter((tag, index, list) => list.findIndex((current) => current.toLowerCase() === tag.toLowerCase()) === index)
+      .filter((tag) =>
+        tagCatalog.some((block) => block.tags.some((allowedTag) => allowedTag.toLowerCase() === tag.toLowerCase())),
+      ),
   };
 }

@@ -139,6 +139,7 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
             docxUrl: group.docxUrl || '',
             suggestedTags: Array.isArray(group.suggestedTags) ? group.suggestedTags : [],
             existingTags: Array.isArray(group.existingTags) ? group.existingTags : [],
+            catalogBlocks: Array.isArray(group.catalogBlocks) ? group.catalogBlocks : [],
             sourceImageCount:
               typeof group.sourceImageCount === 'number'
                 ? group.sourceImageCount

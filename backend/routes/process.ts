@@ -5,6 +5,7 @@ import { generateKnowledgeMetadata } from '../services/aiService';
 import { generateDocxBuffer } from '../services/docxService';
 import { detectLanguage } from '../services/languageService';
 import { extractTextFromImage } from '../services/ocrService';
+import { getRelevantCatalogBlocks, getTagCatalog } from '../services/tagCatalogService';
 import { uploadDocx, uploadImage } from '../services/storageService';
 import { buildHybridTags } from '../services/tagService';
 import { groupImagesByTheme } from '../utils/themeGrouping';
@@ -26,6 +27,7 @@ function normalizeReadingText(text: string) {
 
 processRouter.post('/', upload.array('images', 20), async (req, res) => {
   try {
+    const tagCatalog = await getTagCatalog();
     const files = req.files as Express.Multer.File[] | undefined;
     const mode = req.body.mode === 'auto-separate' ? 'auto-separate' : 'single-topic';
     const supplementalText = typeof req.body.supplementalText === 'string' ? req.body.supplementalText.trim() : '';
@@ -69,9 +71,10 @@ processRouter.post('/', upload.array('images', 20), async (req, res) => {
 
     if (perImageDrafts.length === 0) {
       const combinedLanguage = detectLanguage(supplementalText);
-      const combinedMetadata = await generateKnowledgeMetadata(supplementalText, combinedLanguage);
+      const combinedMetadata = await generateKnowledgeMetadata(supplementalText, combinedLanguage, tagCatalog);
       const finalTranslatedText = combinedLanguage === 'es' ? normalizeReadingText(supplementalText) : combinedMetadata.translatedText;
       const hybridTags = await buildHybridTags(combinedMetadata.tags);
+      const relevantCatalogBlocks = await getRelevantCatalogBlocks(combinedMetadata.tags);
       const finalTitle = customTitle || combinedMetadata.title;
       const docxBuffer = await generateDocxBuffer({
         title: finalTitle,
@@ -102,6 +105,7 @@ processRouter.post('/', upload.array('images', 20), async (req, res) => {
             docxUrl,
             suggestedTags: hybridTags.suggestedTags,
             existingTags: hybridTags.existingTags,
+            catalogBlocks: relevantCatalogBlocks,
             sourceImageCount: 0,
           },
         ],
@@ -129,11 +133,12 @@ processRouter.post('/', upload.array('images', 20), async (req, res) => {
           languages.add(detectLanguage(supplementalText));
         }
         const finalDetectedLanguage = languages.has('en') && !languages.has('es') ? 'en' : 'es';
-        const combinedMetadata = await generateKnowledgeMetadata(combinedOriginalText, finalDetectedLanguage);
+        const combinedMetadata = await generateKnowledgeMetadata(combinedOriginalText, finalDetectedLanguage, tagCatalog);
         const finalTranslatedText =
           finalDetectedLanguage === 'es' ? normalizeReadingText(combinedOriginalText) : combinedMetadata.translatedText;
 
         const hybridTags = await buildHybridTags(combinedMetadata.tags);
+        const relevantCatalogBlocks = await getRelevantCatalogBlocks(combinedMetadata.tags);
         const finalTitle =
           customTitle && grouping.length > 1 ? `${customTitle} · Grupo ${groupIndex + 1}` : customTitle || combinedMetadata.title;
         const docxBuffer = await generateDocxBuffer({
@@ -161,6 +166,7 @@ processRouter.post('/', upload.array('images', 20), async (req, res) => {
           docxUrl,
           suggestedTags: hybridTags.suggestedTags,
           existingTags: hybridTags.existingTags,
+          catalogBlocks: relevantCatalogBlocks,
           sourceImageCount: groupedItems.length,
         };
       }),
