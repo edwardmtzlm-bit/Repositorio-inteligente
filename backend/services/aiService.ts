@@ -22,6 +22,22 @@ export interface AIProcessingResult {
   tags: string[];
 }
 
+export interface AssistantCandidate {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  publishedAt: string;
+  textSnippet: string;
+}
+
+export interface RepositoryAssistantResult {
+  answer: string;
+  matchedContentIds: string[];
+  candidateCount: number;
+  reviewedItems: Array<{ id: string; title: string; summary: string }>;
+}
+
 function normalizeOcrText(text: string) {
   return text
     .replace(/\r\n/g, '\n')
@@ -254,5 +270,97 @@ Responde solo JSON.
       .filter((tag) =>
         tagCatalog.some((block) => block.tags.some((allowedTag) => allowedTag.toLowerCase() === tag.toLowerCase())),
       ),
+  };
+}
+
+export async function answerRepositoryQuestion(question: string, candidates: AssistantCandidate[]): Promise<RepositoryAssistantResult> {
+  const trimmedQuestion = question.trim();
+
+  if (!trimmedQuestion) {
+    throw new Error('Debes escribir una pregunta para consultar el repositorio.');
+  }
+
+  if (candidates.length === 0) {
+    return {
+      answer: 'No encontré artículos relacionados con esa consulta dentro del repositorio actual.',
+      matchedContentIds: [],
+      candidateCount: 0,
+      reviewedItems: [],
+    };
+  }
+
+  const genAI = getGenAI();
+  const candidatesPrompt = candidates
+    .map(
+      (candidate, index) => `
+[${index + 1}] ID: ${candidate.id}
+Título: ${candidate.title}
+Fecha: ${candidate.publishedAt}
+Tags: ${candidate.tags.join(', ') || 'Sin tags'}
+Resumen: ${candidate.summary}
+Fragmento: ${candidate.textSnippet}
+`.trim(),
+    )
+    .join('\n\n');
+
+  const prompt = `
+Eres un asistente que consulta exclusivamente un repositorio privado de artículos.
+
+Pregunta del usuario:
+${trimmedQuestion}
+
+Artículos candidatos:
+${candidatesPrompt}
+
+Instrucciones:
+1. Responde en español claro y directo.
+2. Usa solamente la información de los artículos candidatos.
+3. Si sí hay coincidencias, menciona brevemente cuáles son y por qué.
+4. Si no hay evidencia suficiente, dilo sin inventar.
+5. Devuelve entre 0 y 5 IDs relevantes en matchedContentIds.
+6. No incluyas IDs que no aparezcan en la lista.
+7. No menciones IDs internos en la redacción final. Habla de los artículos por tema o por título.
+
+Responde solo JSON.
+`;
+
+  const result = await genAI.models.generateContent({
+    model,
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          answer: { type: Type.STRING },
+          matchedContentIds: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+          },
+        },
+        required: ['answer', 'matchedContentIds'],
+      },
+    },
+  });
+
+  const response = result.text;
+
+  if (!response) {
+    throw new Error('La IA no devolvió respuesta para la consulta del repositorio.');
+  }
+
+  const parsed = JSON.parse(response) as Pick<RepositoryAssistantResult, 'answer' | 'matchedContentIds'>;
+  const validIds = new Set(candidates.map((candidate) => candidate.id));
+  const matchedContentIds = (parsed.matchedContentIds || []).filter((id, index, list) => validIds.has(id) && list.indexOf(id) === index).slice(0, 5);
+
+  return {
+    answer: parsed.answer.trim(),
+    matchedContentIds,
+    candidateCount: candidates.length,
+    reviewedItems: candidates.map((candidate) => ({
+      id: candidate.id,
+      title: candidate.title,
+      summary: candidate.summary,
+    })),
   };
 }

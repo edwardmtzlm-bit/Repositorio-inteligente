@@ -38,7 +38,7 @@ export function useContents(search: string, selectedBlocks: string[]) {
       const data = await fetchTagCatalog();
       setTagCatalog(data.blocks);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'No fue posible cargar el catalogo de tags');
+      console.error('No fue posible cargar el catalogo de tags.', loadError);
     }
   };
 
@@ -47,7 +47,7 @@ export function useContents(search: string, selectedBlocks: string[]) {
       const data = await fetchLibraryDocxUrl();
       setLibraryDocxUrl(data.url);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'No fue posible cargar el Word general');
+      console.error('No fue posible cargar el Word general.', loadError);
     }
   };
 

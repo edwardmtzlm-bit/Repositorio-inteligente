@@ -30,6 +30,19 @@ export interface ContentListItem {
   tags: TagOption[];
 }
 
+export interface RepositoryAssistantResponse {
+  answer: string;
+  matchedContentIds: string[];
+  candidateCount: number;
+  reviewedItems: RepositoryAssistantMatch[];
+}
+
+export interface RepositoryAssistantMatch {
+  id: string;
+  title: string;
+  summary: string;
+}
+
 export type ProcessingMode = 'single-topic' | 'auto-separate';
 
 export interface ProcessingDraftGroup {

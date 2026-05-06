@@ -1,6 +1,6 @@
 import { generateDocxBuffer } from './docxService';
 import { appendContentToGeneralGoogleDoc, getGeneralGoogleDocUrl, syncContentsToGeneralGoogleDoc } from './googleDocsService';
-import { generateKnowledgeMetadata } from './aiService';
+import { answerRepositoryQuestion, generateKnowledgeMetadata } from './aiService';
 import { detectLanguage } from './languageService';
 import { getCatalogTagBlockLookup, getTagCatalog } from './tagCatalogService';
 import { uploadDocx } from './storageService';
@@ -19,6 +19,31 @@ export interface SaveContentInput {
   longSummary: string;
   docxUrl?: string;
   selectedTags: Array<Pick<TagRecord, 'id' | 'nombre' | 'tipo'>>;
+}
+
+function tokenizeAssistantText(text: string) {
+  return text
+    .toLowerCase()
+    .match(/[a-záéíóúñü0-9]+/gi)
+    ?.filter((token) => token.length >= 3) ?? [];
+}
+
+function scoreAssistantMatch(question: string, content: { title: string; summary: string; translatedText: string; tags: Array<{ nombre: string }> }) {
+  const queryTokens = Array.from(new Set(tokenizeAssistantText(question)));
+
+  if (queryTokens.length === 0) {
+    return 0;
+  }
+
+  const haystack = `${content.title} ${content.summary} ${content.translatedText} ${content.tags.map((tag) => tag.nombre).join(' ')}`.toLowerCase();
+
+  return queryTokens.reduce((score, token) => {
+    if (haystack.includes(token)) {
+      return score + 1;
+    }
+
+    return score;
+  }, 0);
 }
 
 async function replaceContentTags(contentId: string, selectedTags: Array<Pick<TagRecord, 'id' | 'nombre' | 'tipo'>>) {
@@ -670,4 +695,42 @@ export async function deleteContent(contentId: string) {
     id: contentId,
     libraryDocxUrl: getGeneralGoogleDocUrl(),
   };
+}
+
+export async function queryRepositoryAssistant(question: string) {
+  const trimmedQuestion = question.trim();
+
+  if (!trimmedQuestion) {
+    throw new Error('Debes escribir una pregunta para consultar el repositorio.');
+  }
+
+  const contents = await listContents();
+  const rankedCandidates = contents
+    .map((item) => ({
+      id: item.id,
+      title: item.titulo,
+      summary: item.resumen_largo || item.resumen,
+      tags: item.tags,
+      translatedText: item.texto_traducido,
+      publishedAt: new Date(item.fecha).toLocaleDateString('es-MX'),
+      score: scoreAssistantMatch(trimmedQuestion, {
+        title: item.titulo,
+        summary: item.resumen_largo || item.resumen,
+        translatedText: item.texto_traducido,
+        tags: item.tags,
+      }),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .filter((item, index) => item.score > 0 || index < 8)
+    .slice(0, 8)
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      summary: item.summary,
+      tags: item.tags.map((tag) => tag.nombre),
+      publishedAt: item.publishedAt,
+      textSnippet: item.translatedText.slice(0, 1200),
+    }));
+
+  return answerRepositoryQuestion(trimmedQuestion, rankedCandidates);
 }

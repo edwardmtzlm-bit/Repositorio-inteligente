@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { appendImagesToContent, deleteContent, enrichContent, getLibraryDocxUrl, listContents, regenerateExistingDocuments, saveContent, syncExistingContentsToLibraryDoc, updateContentMetadata } from '../services/contentService';
+import { appendImagesToContent, deleteContent, enrichContent, getLibraryDocxUrl, listContents, queryRepositoryAssistant, regenerateExistingDocuments, saveContent, syncExistingContentsToLibraryDoc, updateContentMetadata } from '../services/contentService';
 
 export const searchRouter = Router();
 
@@ -113,6 +113,19 @@ searchRouter.post('/library-docx/regenerate', async (_req, res) => {
     console.error('Error en POST /api/library-docx/regenerate:', error);
     return res.status(500).json({
       error: error instanceof Error ? error.message : 'No fue posible regenerar documentos existentes.',
+    });
+  }
+});
+
+searchRouter.post('/assistant/query', async (req, res) => {
+  try {
+    const question = typeof req.body.question === 'string' ? req.body.question : '';
+    const result = await queryRepositoryAssistant(question);
+    return res.json(result);
+  } catch (error) {
+    console.error('Error en POST /api/assistant/query:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'No fue posible consultar el repositorio con el asistente.',
     });
   }
 });

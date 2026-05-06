@@ -1,4 +1,4 @@
-import type { ContentListItem, ProcessingMode, ProcessingResponse, SaveContentPayload, TagCatalogBlock, TagOption } from '../types/content';
+import type { ContentListItem, ProcessingMode, ProcessingResponse, RepositoryAssistantResponse, SaveContentPayload, TagCatalogBlock, TagOption } from '../types/content';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
 
@@ -175,4 +175,16 @@ export async function deleteContent(contentId: string) {
   });
 
   return parseJson<{ id: string; libraryDocxUrl: string }>(response);
+}
+
+export async function queryRepositoryAssistant(question: string) {
+  const response = await fetch(apiUrl('/api/assistant/query'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ question }),
+  });
+
+  return parseJson<RepositoryAssistantResponse>(response);
 }

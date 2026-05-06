@@ -1,13 +1,14 @@
-import { Loader2 } from 'lucide-react';
+import { Bot, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmationPanel } from '../components/ConfirmationPanel';
 import { ContentCard } from '../components/ContentCard';
 import { ContentDetailDialog } from '../components/ContentDetailDialog';
+import { RepositoryAssistantPanel } from '../components/RepositoryAssistantPanel';
 import { SearchToolbar } from '../components/SearchToolbar';
 import { TagCatalogDialog } from '../components/TagCatalogDialog';
 import { UploadDialog } from '../components/UploadDialog';
 import { useContents } from '../hooks/useContents';
-import type { ContentListItem, ProcessingResponse } from '../types/content';
+import type { ContentListItem, ProcessingResponse, RepositoryAssistantResponse } from '../types/content';
 
 export function KnowledgeRepositoryPage() {
   const [search, setSearch] = useState('');
@@ -15,6 +16,9 @@ export function KnowledgeRepositoryPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantResult, setAssistantResult] = useState<RepositoryAssistantResponse | null>(null);
+  const [assistantFilterActive, setAssistantFilterActive] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ContentListItem | null>(null);
   const [processingResponse, setProcessingResponse] = useState<ProcessingResponse | null>(null);
   const { items, tagCatalog, loading, error, refresh, libraryDocxUrl, syncLibraryDocx, regenerateExistingDocuments, deleteContent, saveTagCatalog } = useContents(search, selectedBlocks);
@@ -25,12 +29,41 @@ export function KnowledgeRepositoryPage() {
     );
   };
 
+  const assistantMatchedItems = items
+    .filter((item) => assistantResult?.matchedContentIds.includes(item.id))
+    .map((item) => ({
+      id: item.id,
+      title: item.titulo,
+      summary: item.resumen,
+    }));
+  const visibleItems =
+    assistantFilterActive && assistantResult?.matchedContentIds.length
+      ? items.filter((item) => assistantResult.matchedContentIds.includes(item.id))
+      : items;
+
+  const revealItemInScreen = (itemId: string) => {
+    const target = document.getElementById(`content-card-${itemId}`);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const openMatchedItem = (itemId: string) => {
+    const targetItem = items.find((item) => item.id === itemId);
+    if (targetItem) {
+      setAssistantOpen(false);
+      setSelectedItem(targetItem);
+    }
+  };
+
   return (
     <div
       translate="no"
       className="notranslate min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.22),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#fff7ed_100%)] text-slate-950"
     >
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div
+        className={`mx-auto max-w-7xl px-4 py-8 transition-[padding-right,transform] duration-300 sm:px-6 lg:px-8 ${
+          assistantOpen ? 'xl:pr-[30rem] 2xl:pr-[32rem]' : ''
+        }`}
+      >
         <header className="mb-8 rounded-[2.5rem] bg-[#2d0140] px-6 py-10 text-white shadow-[0_40px_120px_-48px_rgba(45,1,64,0.75)]">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300">Repositorio inteligente</p>
           <div className="mt-4 max-w-3xl">
@@ -49,6 +82,7 @@ export function KnowledgeRepositoryPage() {
           availableBlocks={tagCatalog}
           selectedBlocks={selectedBlocks}
           onToggleBlock={toggleFilterBlock}
+          compact={assistantOpen}
           onOpenCatalog={() => setCatalogOpen(true)}
           onCreateNew={() => setUploadOpen(true)}
           libraryDocxUrl={libraryDocxUrl}
@@ -70,8 +104,13 @@ export function KnowledgeRepositoryPage() {
             </div>
           ) : (
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {items.map((item) => (
-                <ContentCard key={item.id} item={item} onOpen={() => setSelectedItem(item)} />
+              {visibleItems.map((item) => (
+                <ContentCard
+                  key={item.id}
+                  item={item}
+                  highlighted={assistantResult?.matchedContentIds.includes(item.id) ?? false}
+                  onOpen={() => setSelectedItem(item)}
+                />
               ))}
             </div>
           )}
@@ -107,6 +146,24 @@ export function KnowledgeRepositoryPage() {
         }}
       />
 
+      <RepositoryAssistantPanel
+        open={assistantOpen}
+        onClose={() => {
+          setAssistantOpen(false);
+          setAssistantResult(null);
+          setAssistantFilterActive(false);
+        }}
+        onResults={(result) => {
+          setAssistantResult(result);
+          setAssistantFilterActive(false);
+        }}
+        matchedItems={assistantMatchedItems}
+        onRevealItem={revealItemInScreen}
+        onOpenItem={openMatchedItem}
+        onToggleFilter={() => setAssistantFilterActive((current) => !current)}
+        filterActive={assistantFilterActive}
+      />
+
       <ContentDetailDialog
         item={selectedItem}
         onClose={() => setSelectedItem(null)}
@@ -120,6 +177,16 @@ export function KnowledgeRepositoryPage() {
           await refresh();
         }}
       />
+
+      {!assistantOpen && (
+        <button
+          onClick={() => setAssistantOpen(true)}
+          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-[0_24px_80px_-24px_rgba(15,23,42,0.55)] transition hover:bg-slate-800"
+        >
+          <Bot className="h-4 w-4" />
+          Asistente
+        </button>
+      )}
     </div>
   );
 }

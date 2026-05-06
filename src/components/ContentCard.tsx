@@ -4,13 +4,19 @@ import type { ContentListItem } from '../types/content';
 interface ContentCardProps {
   item: ContentListItem;
   onOpen: () => void;
+  highlighted?: boolean;
 }
 
-export function ContentCard({ item, onOpen }: ContentCardProps) {
+export function ContentCard({ item, onOpen, highlighted = false }: ContentCardProps) {
   return (
     <article
+      id={`content-card-${item.id}`}
       onClick={onOpen}
-      className="group overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_32px_120px_-48px_rgba(15,23,42,0.45)] transition hover:-translate-y-1 hover:shadow-[0_40px_120px_-48px_rgba(15,23,42,0.55)]"
+      className={`group overflow-hidden rounded-[2rem] border bg-white shadow-[0_32px_120px_-48px_rgba(15,23,42,0.45)] transition hover:-translate-y-1 hover:shadow-[0_40px_120px_-48px_rgba(15,23,42,0.55)] ${
+        highlighted
+          ? 'border-amber-400 ring-4 ring-amber-200/80'
+          : 'border-black/5'
+      }`}
     >
       <div className="aspect-[4/3] overflow-hidden bg-slate-100">
         {item.imagen_url ? (
