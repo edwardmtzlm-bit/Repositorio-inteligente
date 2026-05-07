@@ -25,6 +25,41 @@ function normalizeReadingText(text: string) {
     .trim();
 }
 
+async function buildPerImageDrafts(files: Express.Multer.File[]) {
+  const drafts: Array<{
+    index: number;
+    imageUrl: string;
+    originalText: string;
+    detectedLanguage: 'es' | 'en';
+  }> = [];
+  const failedImages: string[] = [];
+
+  for (const [index, file] of files.entries()) {
+    try {
+      const originalText = await extractTextFromImage(file.buffer, file.mimetype);
+
+      if (!originalText) {
+        throw new Error('Sin texto utilizable');
+      }
+
+      const imageUrl = await uploadImage(file.buffer, file.mimetype, file.originalname);
+      const detectedLanguage = detectLanguage(originalText);
+
+      drafts.push({
+        index,
+        imageUrl,
+        originalText,
+        detectedLanguage,
+      });
+    } catch (error) {
+      console.error(`No fue posible procesar la imagen ${index + 1} (${file.originalname}):`, error);
+      failedImages.push(file.originalname || `Imagen ${index + 1}`);
+    }
+  }
+
+  return { drafts, failedImages };
+}
+
 processRouter.post('/', upload.fields([{ name: 'images', maxCount: 20 }, { name: 'audio', maxCount: 1 }, { name: 'video', maxCount: 1 }]), async (req, res) => {
   try {
     const tagCatalog = await getTagCatalog();
@@ -110,25 +145,13 @@ processRouter.post('/', upload.fields([{ name: 'images', maxCount: 20 }, { name:
       });
     }
 
-    const perImageDrafts = await Promise.all(
-      (files || []).map(async (file, index) => {
-        const imageUrl = await uploadImage(file.buffer, file.mimetype, file.originalname);
-        const originalText = await extractTextFromImage(file.buffer, file.mimetype);
+    const { drafts: perImageDrafts, failedImages } = await buildPerImageDrafts(files || []);
 
-        if (!originalText) {
-          throw new Error(`No se pudo extraer texto utilizable desde la imagen ${index + 1}.`);
-        }
-
-        const detectedLanguage = detectLanguage(originalText);
-
-        return {
-          index,
-          imageUrl,
-          originalText,
-          detectedLanguage,
-        };
-      }),
-    );
+    if (perImageDrafts.length === 0 && failedImages.length > 0) {
+      throw new Error(
+        `No fue posible extraer texto utilizable de las imágenes seleccionadas. Imágenes con problema: ${failedImages.join(', ')}`,
+      );
+    }
 
     if (perImageDrafts.length === 0) {
       const combinedLanguage = detectLanguage(supplementalText);
@@ -236,6 +259,7 @@ processRouter.post('/', upload.fields([{ name: 'images', maxCount: 20 }, { name:
     return res.json({
       modeApplied: mode,
       totalImages: perImageDrafts.length,
+      skippedImages: failedImages,
       groups,
     });
   } catch (error) {
