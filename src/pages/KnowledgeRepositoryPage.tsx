@@ -1,5 +1,5 @@
 import { Bot, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ConfirmationPanel } from '../components/ConfirmationPanel';
 import { ContentCard } from '../components/ContentCard';
 import { ContentDetailDialog } from '../components/ContentDetailDialog';
@@ -10,6 +10,8 @@ import { UploadDialog } from '../components/UploadDialog';
 import { useContents } from '../hooks/useContents';
 import type { ContentListItem, ProcessingResponse, RepositoryAssistantResponse } from '../types/content';
 
+const ITEMS_PER_PAGE = 12;
+
 export function KnowledgeRepositoryPage() {
   const [search, setSearch] = useState('');
   const [selectedBlocks, setSelectedBlocks] = useState<string[]>([]);
@@ -19,6 +21,7 @@ export function KnowledgeRepositoryPage() {
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantResult, setAssistantResult] = useState<RepositoryAssistantResponse | null>(null);
   const [assistantFilterActive, setAssistantFilterActive] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedItem, setSelectedItem] = useState<ContentListItem | null>(null);
   const [processingResponse, setProcessingResponse] = useState<ProcessingResponse | null>(null);
   const { items, tagCatalog, loading, error, refresh, libraryDocxUrl, syncLibraryDocx, regenerateExistingDocuments, deleteContent, saveTagCatalog } = useContents(search, selectedBlocks);
@@ -41,13 +44,56 @@ export function KnowledgeRepositoryPage() {
       ? items.filter((item) => assistantResult.matchedContentIds.includes(item.id))
       : items;
 
+  const totalPages = Math.max(1, Math.ceil(visibleItems.length / ITEMS_PER_PAGE));
+  const paginatedItems = useMemo(
+    () => visibleItems.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
+    [currentPage, visibleItems],
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, selectedBlocks.join('|'), assistantFilterActive, assistantResult?.matchedContentIds.join('|')]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const paginationNumbers = useMemo(() => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    const pages = new Set<number>([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+    return Array.from(pages)
+      .filter((page) => page >= 1 && page <= totalPages)
+      .sort((left, right) => left - right);
+  }, [currentPage, totalPages]);
+
   const revealItemInScreen = (itemId: string) => {
-    const target = document.getElementById(`content-card-${itemId}`);
-    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const targetIndex = visibleItems.findIndex((item) => item.id === itemId);
+
+    if (targetIndex >= 0) {
+      setCurrentPage(Math.floor(targetIndex / ITEMS_PER_PAGE) + 1);
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const target = document.getElementById(`content-card-${itemId}`);
+        target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
   };
 
   const openMatchedItem = (itemId: string) => {
     const targetItem = items.find((item) => item.id === itemId);
+    const targetIndex = visibleItems.findIndex((item) => item.id === itemId);
+
+    if (targetIndex >= 0) {
+      setCurrentPage(Math.floor(targetIndex / ITEMS_PER_PAGE) + 1);
+    }
+
     if (targetItem) {
       setAssistantOpen(false);
       setSelectedItem(targetItem);
@@ -97,21 +143,64 @@ export function KnowledgeRepositoryPage() {
             <div className="flex min-h-[240px] items-center justify-center rounded-[2rem] border border-black/5 bg-white/70">
               <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
             </div>
-          ) : items.length === 0 ? (
+          ) : visibleItems.length === 0 ? (
             <div className="rounded-[2rem] border border-dashed border-slate-300 bg-white/75 px-6 py-16 text-center">
               <h2 className="text-xl font-semibold text-slate-900">No hay resultados</h2>
               <p className="mt-3 text-sm text-slate-500">Ajusta los filtros o sube un nuevo contenido para iniciar el repositorio.</p>
             </div>
           ) : (
-            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {visibleItems.map((item) => (
-                <ContentCard
-                  key={item.id}
-                  item={item}
-                  highlighted={assistantResult?.matchedContentIds.includes(item.id) ?? false}
-                  onOpen={() => setSelectedItem(item)}
-                />
-              ))}
+            <div className="space-y-8">
+              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {paginatedItems.map((item) => (
+                  <ContentCard
+                    key={item.id}
+                    item={item}
+                    highlighted={assistantResult?.matchedContentIds.includes(item.id) ?? false}
+                    onOpen={() => setSelectedItem(item)}
+                  />
+                ))}
+              </div>
+
+              {totalPages > 1 && (
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}
+                    disabled={currentPage === 1}
+                    className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Anterior
+                  </button>
+
+                  {paginationNumbers.map((page, index) => {
+                    const previousPage = paginationNumbers[index - 1];
+                    const shouldShowGap = previousPage && page - previousPage > 1;
+
+                    return (
+                      <div key={`page-${page}`} className="flex items-center gap-2">
+                        {shouldShowGap && <span className="px-1 text-sm text-slate-400">…</span>}
+                        <button
+                          onClick={() => setCurrentPage(page)}
+                          className={`h-11 min-w-11 rounded-full px-3 text-sm font-semibold transition ${
+                            page === currentPage
+                              ? 'bg-slate-950 text-white'
+                              : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-950'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  <button
+                    onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}
+                    disabled={currentPage === totalPages}
+                    className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </section>

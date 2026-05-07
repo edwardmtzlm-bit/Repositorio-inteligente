@@ -48,6 +48,40 @@ function scoreAssistantMatch(question: string, content: { title: string; summary
   }, 0);
 }
 
+function normalizeAssistantQuestion(question: string) {
+  return question
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function isRepositoryCountQuestion(question: string) {
+  const normalized = normalizeAssistantQuestion(question);
+
+  const asksForCount =
+    /\b(cuanto|cuantos|cuanta|cuantas)\b/.test(normalized) ||
+    /\bcuantos van\b/.test(normalized) ||
+    /\btotal\b/.test(normalized);
+
+  const asksAboutRepositoryItems =
+    /\b(archivo|archivos|articulo|articulos|contenido|contenidos|documento|documentos)\b/.test(normalized) ||
+    /\bvan cargad[oa]s?\b/.test(normalized);
+
+  return asksForCount && asksAboutRepositoryItems;
+}
+
+function buildRepositoryCountAnswer(totalCount: number) {
+  if (totalCount === 0) {
+    return 'Actualmente no hay artículos cargados en el repositorio.';
+  }
+
+  if (totalCount === 1) {
+    return 'Actualmente hay 1 artículo cargado en el repositorio.';
+  }
+
+  return `Actualmente hay ${totalCount} artículos cargados en el repositorio.`;
+}
+
 async function replaceContentTags(contentId: string, selectedTags: Array<Pick<TagRecord, 'id' | 'nombre' | 'tipo'>>) {
   const { data: existingRelations, error: relationsError } = await supabaseAdmin
     .from('contenido_tags')
@@ -772,6 +806,16 @@ export async function queryRepositoryAssistant(question: string) {
   }
 
   const contents = await listContents();
+
+  if (isRepositoryCountQuestion(trimmedQuestion)) {
+    return {
+      answer: buildRepositoryCountAnswer(contents.length),
+      matchedContentIds: [],
+      candidateCount: contents.length,
+      reviewedItems: [],
+    };
+  }
+
   const rankedCandidates = contents
     .map((item) => ({
       id: item.id,
