@@ -10,6 +10,10 @@ const apiKey = process.env.GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
 const visionModel = 'gemini-2.5-flash';
 
+function shouldAvoidTesseractInCurrentRuntime() {
+  return process.env.NODE_ENV === 'production' || !!process.env.RENDER;
+}
+
 function normalizeWhitespace(text: string) {
   return text
     .replace(/\r\n/g, '\n')
@@ -290,6 +294,10 @@ export async function extractTextFromImage(buffer: Buffer, mimeType = 'image/png
     }
   } catch (error) {
     console.error('Gemini OCR primary extraction failed, falling back to Tesseract:', error);
+  }
+
+  if (shouldAvoidTesseractInCurrentRuntime()) {
+    throw new Error('No fue posible extraer texto de la imagen con Gemini en este entorno de producción.');
   }
 
   const tesseractText = await extractTextWithTesseract(buffer);
