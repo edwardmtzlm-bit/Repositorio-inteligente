@@ -1,4 +1,4 @@
-import type { ContentAudioNote, ContentListItem, ProcessingMode, ProcessingResponse, RepositoryAssistantResponse, SaveContentPayload, TagCatalogBlock, TagOption } from '../types/content';
+import type { ContentAudioNote, ContentListItem, ContentVideoNote, ProcessingMode, ProcessingResponse, RepositoryAssistantResponse, SaveContentPayload, TagCatalogBlock, TagOption } from '../types/content';
 
 const CONFIGURED_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
 
@@ -15,12 +15,46 @@ function apiUrl(path: string) {
   return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
 }
 
+function configuredApiUrl(path: string) {
+  return CONFIGURED_API_BASE_URL ? `${CONFIGURED_API_BASE_URL}${path}` : path;
+}
+
+async function fetchWithFallback(path: string, init?: RequestInit, allowRemoteFallback = true) {
+  const primaryUrl = apiUrl(path);
+
+  try {
+    return await fetch(primaryUrl, init);
+  } catch (error) {
+    const canRetryRemotely =
+      allowRemoteFallback &&
+      shouldUseLocalApi() &&
+      !!CONFIGURED_API_BASE_URL &&
+      primaryUrl !== configuredApiUrl(path);
+
+    if (!canRetryRemotely) {
+      throw error;
+    }
+
+    return fetch(configuredApiUrl(path), init);
+  }
+}
+
 async function parseJson<T>(response: Response): Promise<T> {
   const contentType = response.headers.get('content-type') || '';
 
   if (!response.ok) {
-    const errorBody = contentType.includes('application/json') ? await response.json().catch(() => null) : null;
-    throw new Error(errorBody?.error || 'Error inesperado en la API');
+    if (contentType.includes('application/json')) {
+      const errorBody = await response.json().catch(() => null);
+      throw new Error(errorBody?.error || 'Error inesperado en la API');
+    }
+
+    const errorText = await response.text().catch(() => '');
+
+    if (errorText.toLowerCase().includes('<!doctype') || errorText.toLowerCase().includes('<html')) {
+      throw new Error('La API devolvió una página HTML en lugar de JSON. Revisa que el backend correcto esté corriendo y actualizado.');
+    }
+
+    throw new Error(errorText.trim() || 'Error inesperado en la API');
   }
 
   if (!contentType.includes('application/json')) {
@@ -41,28 +75,28 @@ export async function fetchContents(search = '', tags: string[] = []) {
     params.set('tags', tags.join(','));
   }
 
-  const response = await fetch(apiUrl(`/api/contents?${params.toString()}`), {
+  const response = await fetchWithFallback(`/api/contents?${params.toString()}`, {
     cache: 'no-store',
   });
   return parseJson<ContentListItem[]>(response);
 }
 
 export async function fetchTags() {
-  const response = await fetch(apiUrl('/api/tags'), {
+  const response = await fetchWithFallback('/api/tags', {
     cache: 'no-store',
   });
   return parseJson<TagOption[]>(response);
 }
 
 export async function fetchTagCatalog() {
-  const response = await fetch(apiUrl('/api/tag-catalog'), {
+  const response = await fetchWithFallback('/api/tag-catalog', {
     cache: 'no-store',
   });
   return parseJson<{ blocks: TagCatalogBlock[] }>(response);
 }
 
 export async function updateTagCatalog(blocks: TagCatalogBlock[]) {
-  const response = await fetch(apiUrl('/api/tag-catalog'), {
+  const response = await fetchWithFallback('/api/tag-catalog', {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -74,7 +108,7 @@ export async function updateTagCatalog(blocks: TagCatalogBlock[]) {
 }
 
 export async function deleteTag(tagId: string) {
-  const response = await fetch(apiUrl(`/api/tags/${tagId}`), {
+  const response = await fetchWithFallback(`/api/tags/${tagId}`, {
     method: 'DELETE',
   });
 
@@ -82,14 +116,14 @@ export async function deleteTag(tagId: string) {
 }
 
 export async function fetchLibraryDocxUrl() {
-  const response = await fetch(apiUrl('/api/library-docx'), {
+  const response = await fetchWithFallback('/api/library-docx', {
     cache: 'no-store',
   });
   return parseJson<{ url: string }>(response);
 }
 
 export async function syncLibraryDocx() {
-  const response = await fetch(apiUrl('/api/library-docx/sync'), {
+  const response = await fetchWithFallback('/api/library-docx/sync', {
     method: 'POST',
   });
 
@@ -97,31 +131,61 @@ export async function syncLibraryDocx() {
 }
 
 export async function regenerateExistingDocuments() {
-  const response = await fetch(apiUrl('/api/library-docx/regenerate'), {
+  const response = await fetchWithFallback('/api/library-docx/regenerate', {
     method: 'POST',
   });
 
   return parseJson<{ url: string; count: number }>(response);
 }
 
-export async function processImages(files: File[], mode: ProcessingMode, supplementalText = '', sourceUrl = '', customTitle = '') {
+export async function processImages(
+  files: File[],
+  mode: ProcessingMode,
+  supplementalText = '',
+  sourceUrl = '',
+  customTitle = '',
+  audioFile?: File | null,
+  videoFile?: File | null,
+) {
   const formData = new FormData();
   files.forEach((file) => formData.append('images', file));
+  if (audioFile) {
+    formData.append('audio', audioFile);
+  }
+  if (videoFile) {
+    formData.append('video', videoFile);
+  }
   formData.append('mode', mode);
   formData.append('supplementalText', supplementalText);
   formData.append('sourceUrl', sourceUrl);
   formData.append('customTitle', customTitle);
 
-  const response = await fetch(apiUrl('/api/process-image'), {
-    method: 'POST',
-    body: formData,
-  });
+  let response: Response;
+
+  try {
+    response = await fetchWithFallback(
+      '/api/process-image',
+      {
+        method: 'POST',
+        body: formData,
+      },
+      !audioFile && !videoFile,
+    );
+  } catch (error) {
+    if (audioFile || videoFile) {
+      throw new Error(
+        `Para procesar ${audioFile ? 'audio' : 'video'} como contenido nuevo necesitas el backend local corriendo con esta función actualizada, o primero desplegar este cambio en Render.`,
+      );
+    }
+
+    throw error;
+  }
 
   return parseJson<ProcessingResponse>(response);
 }
 
 export async function saveContent(payload: SaveContentPayload) {
-  const response = await fetch(apiUrl('/api/contents'), {
+  const response = await fetchWithFallback('/api/contents', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -133,7 +197,7 @@ export async function saveContent(payload: SaveContentPayload) {
 }
 
 export async function enrichContent(contentId: string, supplementalText: string) {
-  const response = await fetch(apiUrl(`/api/contents/${contentId}/enrich`), {
+  const response = await fetchWithFallback(`/api/contents/${contentId}/enrich`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -148,7 +212,7 @@ export async function updateContentMetadata(
   contentId: string,
   payload: { title: string; sourceUrl: string; notes: string },
 ) {
-  const response = await fetch(apiUrl(`/api/contents/${contentId}/metadata`), {
+  const response = await fetchWithFallback(`/api/contents/${contentId}/metadata`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -163,7 +227,7 @@ export async function uploadExtraImages(files: File[]) {
   const formData = new FormData();
   files.forEach((file) => formData.append('images', file));
 
-  const response = await fetch(apiUrl('/api/process-image/upload'), {
+  const response = await fetchWithFallback('/api/process-image/upload', {
     method: 'POST',
     body: formData,
   });
@@ -172,7 +236,7 @@ export async function uploadExtraImages(files: File[]) {
 }
 
 export async function appendContentImages(contentId: string, imageUrls: string[]) {
-  const response = await fetch(apiUrl(`/api/contents/${contentId}/images`), {
+  const response = await fetchWithFallback(`/api/contents/${contentId}/images`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -184,7 +248,7 @@ export async function appendContentImages(contentId: string, imageUrls: string[]
 }
 
 export async function deleteContent(contentId: string) {
-  const response = await fetch(apiUrl(`/api/contents/${contentId}`), {
+  const response = await fetchWithFallback(`/api/contents/${contentId}`, {
     method: 'DELETE',
     cache: 'no-store',
   });
@@ -193,7 +257,7 @@ export async function deleteContent(contentId: string) {
 }
 
 export async function queryRepositoryAssistant(question: string) {
-  const response = await fetch(apiUrl('/api/assistant/query'), {
+  const response = await fetchWithFallback('/api/assistant/query', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -205,7 +269,7 @@ export async function queryRepositoryAssistant(question: string) {
 }
 
 export async function fetchContentAudioNotes(contentId: string) {
-  const response = await fetch(apiUrl(`/api/contents/${contentId}/audio`), {
+  const response = await fetchWithFallback(`/api/contents/${contentId}/audio`, {
     cache: 'no-store',
   });
 
@@ -216,7 +280,7 @@ export async function uploadContentAudio(contentId: string, file: File) {
   const formData = new FormData();
   formData.append('audio', file);
 
-  const response = await fetch(apiUrl(`/api/contents/${contentId}/audio`), {
+  const response = await fetchWithFallback(`/api/contents/${contentId}/audio`, {
     method: 'POST',
     body: formData,
   });
@@ -225,7 +289,7 @@ export async function uploadContentAudio(contentId: string, file: File) {
 }
 
 export async function transcribeContentAudio(contentId: string, fileName: string) {
-  const response = await fetch(apiUrl(`/api/contents/${contentId}/audio/${encodeURIComponent(fileName)}/transcribe`), {
+  const response = await fetchWithFallback(`/api/contents/${contentId}/audio/${encodeURIComponent(fileName)}/transcribe`, {
     method: 'POST',
   });
 
@@ -233,9 +297,37 @@ export async function transcribeContentAudio(contentId: string, fileName: string
 }
 
 export async function deleteContentAudio(contentId: string, fileName: string) {
-  const response = await fetch(apiUrl(`/api/contents/${contentId}/audio/${encodeURIComponent(fileName)}`), {
+  const response = await fetchWithFallback(`/api/contents/${contentId}/audio/${encodeURIComponent(fileName)}`, {
     method: 'DELETE',
   });
 
   return parseJson<{ notes: ContentAudioNote[] }>(response);
+}
+
+export async function fetchContentVideoNotes(contentId: string) {
+  const response = await fetchWithFallback(`/api/contents/${contentId}/video`, {
+    cache: 'no-store',
+  });
+
+  return parseJson<{ notes: ContentVideoNote[] }>(response);
+}
+
+export async function uploadContentVideo(contentId: string, file: File) {
+  const formData = new FormData();
+  formData.append('video', file);
+
+  const response = await fetchWithFallback(`/api/contents/${contentId}/video`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  return parseJson<{ notes: ContentVideoNote[] }>(response);
+}
+
+export async function deleteContentVideo(contentId: string, fileName: string) {
+  const response = await fetchWithFallback(`/api/contents/${contentId}/video/${encodeURIComponent(fileName)}`, {
+    method: 'DELETE',
+  });
+
+  return parseJson<{ notes: ContentVideoNote[] }>(response);
 }

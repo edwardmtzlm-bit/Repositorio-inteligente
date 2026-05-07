@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import multer from 'multer';
-import { generateKnowledgeMetadata } from '../services/aiService';
+import { generateKnowledgeMetadata, transcribeMediaBuffer } from '../services/aiService';
 import { generateDocxBuffer } from '../services/docxService';
 import { detectLanguage } from '../services/languageService';
 import { extractTextFromImage } from '../services/ocrService';
@@ -25,17 +25,29 @@ function normalizeReadingText(text: string) {
     .trim();
 }
 
-processRouter.post('/', upload.array('images', 20), async (req, res) => {
+processRouter.post('/', upload.fields([{ name: 'images', maxCount: 20 }, { name: 'audio', maxCount: 1 }, { name: 'video', maxCount: 1 }]), async (req, res) => {
   try {
     const tagCatalog = await getTagCatalog();
-    const files = req.files as Express.Multer.File[] | undefined;
+    const uploadedFiles = req.files as { images?: Express.Multer.File[]; audio?: Express.Multer.File[]; video?: Express.Multer.File[] } | undefined;
+    const files = uploadedFiles?.images;
+    const audioFile = uploadedFiles?.audio?.[0];
+    const videoFile = uploadedFiles?.video?.[0];
+    const mediaFile = audioFile || videoFile;
     const mode = req.body.mode === 'auto-separate' ? 'auto-separate' : 'single-topic';
     const supplementalText = typeof req.body.supplementalText === 'string' ? req.body.supplementalText.trim() : '';
     const sourceUrl = typeof req.body.sourceUrl === 'string' ? req.body.sourceUrl.trim() : '';
     const customTitle = typeof req.body.customTitle === 'string' ? req.body.customTitle.trim() : '';
 
-    if ((!files || files.length === 0) && !supplementalText) {
-      return res.status(400).json({ error: 'Debes subir al menos una imagen o pegar texto.' });
+    if ((!files || files.length === 0) && !mediaFile && !supplementalText) {
+      return res.status(400).json({ error: 'Debes subir al menos una imagen, un audio, un video o pegar texto.' });
+    }
+
+    if (mediaFile && files && files.length > 0) {
+      return res.status(400).json({ error: 'Por ahora procesa imágenes o multimedia por separado, no mezclados en el mismo envío.' });
+    }
+
+    if (audioFile && videoFile) {
+      return res.status(400).json({ error: 'Por ahora procesa un audio o un video por envío, no ambos al mismo tiempo.' });
     }
 
     const maxImages = mode === 'single-topic' ? MAX_IMAGES_SINGLE_TOPIC : MAX_IMAGES_AUTO_SEPARATE;
@@ -46,6 +58,55 @@ processRouter.post('/', upload.array('images', 20), async (req, res) => {
           mode === 'single-topic'
             ? `Máximo ${MAX_IMAGES_SINGLE_TOPIC} imágenes en "Un solo tema". Más imágenes implican más tiempo de procesamiento.`
             : `Máximo ${MAX_IMAGES_AUTO_SEPARATE} imágenes en "Separar por tema". Más imágenes implican más tiempo de procesamiento.`,
+      });
+    }
+
+    if (mediaFile) {
+      const originalText = await transcribeMediaBuffer(mediaFile.buffer, mediaFile.mimetype, mediaFile.originalname);
+      const combinedOriginalText = [originalText, supplementalText].filter(Boolean).join('\n\n=== TEXTO COMPLEMENTARIO ===\n\n');
+      const combinedLanguage = detectLanguage(combinedOriginalText);
+      const combinedMetadata = await generateKnowledgeMetadata(combinedOriginalText, combinedLanguage, tagCatalog);
+      const finalTranslatedText =
+        combinedLanguage === 'es' ? normalizeReadingText(combinedOriginalText) : combinedMetadata.translatedText;
+      const hybridTags = await buildHybridTags(combinedMetadata.tags);
+      const relevantCatalogBlocks = await getRelevantCatalogBlocks(combinedMetadata.tags);
+      const finalTitle = customTitle || combinedMetadata.title;
+      const docxBuffer = await generateDocxBuffer({
+        title: finalTitle,
+        summary: combinedMetadata.longSummary,
+        translatedText: finalTranslatedText,
+        tags: hybridTags.suggestedTags.map((tag) => tag.nombre),
+        date: new Date().toLocaleString('es-MX'),
+        sourceUrl,
+      });
+      const docxUrl = await uploadDocx(docxBuffer, finalTitle);
+
+      return res.json({
+        modeApplied: 'single-topic',
+        totalImages: 0,
+        groups: [
+          {
+            id: randomUUID(),
+            imageUrls: [],
+            coverImageUrl: '',
+            sourceInputType: audioFile ? 'audio' : 'video',
+            sourceAudioName: audioFile?.originalname || '',
+            sourceVideoName: videoFile?.originalname || '',
+            sourceUrl,
+            customTitle,
+            originalText: combinedOriginalText,
+            translatedText: finalTranslatedText,
+            detectedLanguage: combinedLanguage,
+            title: finalTitle,
+            summary: combinedMetadata.summary,
+            longSummary: combinedMetadata.longSummary,
+            docxUrl,
+            suggestedTags: hybridTags.suggestedTags,
+            existingTags: hybridTags.existingTags,
+            catalogBlocks: relevantCatalogBlocks,
+            sourceImageCount: 0,
+          },
+        ],
       });
     }
 

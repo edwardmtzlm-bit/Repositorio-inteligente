@@ -38,18 +38,20 @@ export interface RepositoryAssistantResult {
   reviewedItems: Array<{ id: string; title: string; summary: string }>;
 }
 
-export async function transcribeAudioBuffer(buffer: Buffer, mimeType: string, originalName: string) {
+export async function transcribeMediaBuffer(buffer: Buffer, mimeType: string, originalName: string) {
   const genAI = getGenAI();
+  const isVideo = mimeType.startsWith('video/');
   const prompt = `
-Transcribe este audio al español.
+Transcribe al español el contenido hablado de este ${isVideo ? 'video' : 'audio'}.
 
 Instrucciones:
 1. Devuelve solo la transcripción.
 2. No resumas.
-3. Si el audio ya está en español, respétalo.
+3. Si el contenido ya está en español, respétalo.
 4. Si mezcla inglés y español, conserva el sentido y normaliza al español cuando sea razonable.
 5. Si hay fragmentos ininteligibles, marca [inaudible].
 6. No agregues encabezados ni notas extra.
+7. Ignora descripciones visuales; concéntrate en la voz o diálogo relevante.
 
 Nombre de archivo: ${originalName}
 `;
@@ -75,10 +77,14 @@ Nombre de archivo: ${originalName}
   const transcription = result.text?.trim();
 
   if (!transcription) {
-    throw new Error('La IA no devolvió una transcripción para el audio.');
+    throw new Error(`La IA no devolvió una transcripción para el ${isVideo ? 'video' : 'audio'}.`);
   }
 
   return transcription;
+}
+
+export async function transcribeAudioBuffer(buffer: Buffer, mimeType: string, originalName: string) {
+  return transcribeMediaBuffer(buffer, mimeType, originalName);
 }
 
 function normalizeOcrText(text: string) {

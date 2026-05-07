@@ -1,4 +1,4 @@
-import { Camera, ImagePlus, Layers3, Loader2, ScanSearch, X } from 'lucide-react';
+import { Camera, ImagePlus, Layers3, Loader2, Mic, ScanSearch, Video, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { processImages } from '../lib/api';
 import type { ProcessingMode, ProcessingResponse } from '../types/content';
@@ -12,7 +12,11 @@ interface UploadDialogProps {
 export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) {
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
+  const [selectedVideoFile, setSelectedVideoFile] = useState<File | null>(null);
   const [customTitle, setCustomTitle] = useState('');
   const [supplementalText, setSupplementalText] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
@@ -37,6 +41,8 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
   useEffect(() => {
     if (!open) {
       setSelectedFiles([]);
+      setSelectedAudioFile(null);
+      setSelectedVideoFile(null);
       setCustomTitle('');
       setSupplementalText('');
       setSourceUrl('');
@@ -87,6 +93,8 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
     }
 
     setError(null);
+    setSelectedAudioFile(null);
+    setSelectedVideoFile(null);
     setSelectedFiles((current) => {
       const nextFiles = [...current, ...Array.from(files)];
 
@@ -104,12 +112,40 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
     });
   };
 
+  const onSelectAudioFile = (files?: FileList | null) => {
+    const file = files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setError(null);
+    setSelectedFiles([]);
+    setSelectedVideoFile(null);
+    setMode('single-topic');
+    setSelectedAudioFile(file);
+  };
+
+  const onSelectVideoFile = (files?: FileList | null) => {
+    const file = files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setError(null);
+    setSelectedFiles([]);
+    setSelectedAudioFile(null);
+    setMode('single-topic');
+    setSelectedVideoFile(file);
+  };
+
   const removeFile = (indexToRemove: number) => {
     setSelectedFiles((current) => current.filter((_, index) => index !== indexToRemove));
   };
 
   const handleProcess = async () => {
-    if (selectedFiles.length === 0 && !supplementalText.trim()) {
+    if (selectedFiles.length === 0 && !selectedAudioFile && !selectedVideoFile && !supplementalText.trim()) {
       return;
     }
 
@@ -117,7 +153,7 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
     setError(null);
 
     try {
-      const response = await processImages(selectedFiles, mode, supplementalText, sourceUrl, customTitle);
+      const response = await processImages(selectedFiles, mode, supplementalText, sourceUrl, customTitle, selectedAudioFile, selectedVideoFile);
       const normalizedResponse: ProcessingResponse = {
         modeApplied: response.modeApplied ?? mode,
         totalImages: typeof response.totalImages === 'number' ? response.totalImages : selectedFiles.length,
@@ -128,6 +164,11 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
             id: group.id || `group-${index + 1}`,
             imageUrls: Array.isArray(group.imageUrls) ? group.imageUrls : [],
             coverImageUrl: group.coverImageUrl || group.imageUrls?.[0] || '',
+            sourceInputType: group.sourceInputType || (selectedAudioFile ? 'audio' : selectedVideoFile ? 'video' : selectedFiles.length > 0 ? 'images' : 'text'),
+            sourceAudioName: group.sourceAudioName || selectedAudioFile?.name || '',
+            sourceVideoName: group.sourceVideoName || selectedVideoFile?.name || '',
+            sourceAudioFile: selectedAudioFile,
+            sourceVideoFile: selectedVideoFile,
             sourceUrl: group.sourceUrl || sourceUrl,
             customTitle: group.customTitle || customTitle,
             originalText: group.originalText || '',
@@ -208,6 +249,24 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
                 <h3 className="text-lg font-semibold text-slate-950">Cámara</h3>
                 <p className="mt-2 text-sm text-slate-500">Toma una foto. Luego puedes agregar más desde galería si hace falta.</p>
               </button>
+
+              <button
+                onClick={() => audioInputRef.current?.click()}
+                className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-6 text-left transition hover:border-slate-950 hover:bg-white"
+              >
+                <Mic className="mb-5 h-8 w-8 text-slate-700" />
+                <h3 className="text-lg font-semibold text-slate-950">Audio</h3>
+                <p className="mt-2 text-sm text-slate-500">Sube una nota de voz o audio para transcribirlo y generar un nuevo contenido.</p>
+              </button>
+
+              <button
+                onClick={() => videoInputRef.current?.click()}
+                className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-6 text-left transition hover:border-slate-950 hover:bg-white"
+              >
+                <Video className="mb-5 h-8 w-8 text-slate-700" />
+                <h3 className="text-lg font-semibold text-slate-950">Video</h3>
+                <p className="mt-2 text-sm text-slate-500">Sube un video para analizar su audio y generar un nuevo contenido.</p>
+              </button>
             </div>
 
             <input
@@ -226,12 +285,27 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
               className="hidden"
               onChange={(event) => onSelectFiles(event.target.files)}
             />
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(event) => onSelectAudioFile(event.target.files)}
+            />
+            <input
+              ref={videoInputRef}
+              type="file"
+              accept="video/*"
+              className="hidden"
+              onChange={(event) => onSelectVideoFile(event.target.files)}
+            />
 
             <div className="rounded-[1.5rem] border border-slate-200 p-4">
               <p className="mb-3 text-sm font-semibold text-slate-800">Modo de agrupación</p>
               <div className="grid gap-3">
                 <button
                   onClick={() => setMode('single-topic')}
+                  disabled={!!selectedAudioFile || !!selectedVideoFile}
                   className={`rounded-2xl border p-4 text-left transition ${mode === 'single-topic' ? 'border-amber-500 bg-amber-50' : 'border-slate-200'}`}
                 >
                   <div className="flex items-center gap-3">
@@ -245,6 +319,7 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
 
                 <button
                   onClick={() => setMode('auto-separate')}
+                  disabled={!!selectedAudioFile || !!selectedVideoFile}
                   className={`rounded-2xl border p-4 text-left transition ${mode === 'auto-separate' ? 'border-amber-500 bg-amber-50' : 'border-slate-200'}`}
                 >
                   <div className="flex items-center gap-3">
@@ -257,7 +332,11 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
                 </button>
               </div>
               <p className="mt-3 text-xs leading-5 text-slate-500">
-                En `Un solo tema` puedes cargar hasta 15 imágenes. En `Separar por tema` hasta 10. Más imágenes implican más tiempo de procesamiento.
+                {selectedAudioFile
+                  ? 'El audio se procesa como un solo contenido. El modo de agrupación no aplica para este tipo de archivo.'
+                  : selectedVideoFile
+                    ? 'El video se procesa como un solo contenido tomando el audio como base. El modo de agrupación no aplica para este tipo de archivo.'
+                  : 'En `Un solo tema` puedes cargar hasta 15 imágenes. En `Separar por tema` hasta 10. Más imágenes implican más tiempo de procesamiento.'}
               </p>
             </div>
 
@@ -294,14 +373,52 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
           <div className="space-y-4">
             <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
               <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-semibold text-slate-800">Imágenes seleccionadas</p>
+                <p className="text-sm font-semibold text-slate-800">{selectedAudioFile ? 'Audio seleccionado' : selectedVideoFile ? 'Video seleccionado' : 'Imágenes seleccionadas'}</p>
                 <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
-                  {selectedFiles.length} / {maxImages}
+                  {selectedAudioFile ? '1 audio' : selectedVideoFile ? '1 video' : `${selectedFiles.length} / ${maxImages}`}
                 </span>
               </div>
 
-              {selectedFiles.length === 0 ? (
-                <p className="text-sm text-slate-500">Todavía no has agregado imágenes. Puedes continuar solo con texto si quieres.</p>
+              {selectedAudioFile ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-2xl bg-slate-100 p-3">
+                        <Mic className="h-5 w-5 text-slate-700" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{selectedAudioFile.name}</p>
+                        <p className="text-xs text-slate-500">
+                          {(selectedAudioFile.size / (1024 * 1024)).toFixed(2)} MB
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={() => setSelectedAudioFile(null)} className="text-xs font-semibold text-red-600">
+                      Quitar
+                    </button>
+                  </div>
+                </div>
+              ) : selectedVideoFile ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-2xl bg-slate-100 p-3">
+                        <Video className="h-5 w-5 text-slate-700" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{selectedVideoFile.name}</p>
+                        <p className="text-xs text-slate-500">
+                          {(selectedVideoFile.size / (1024 * 1024)).toFixed(2)} MB
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={() => setSelectedVideoFile(null)} className="text-xs font-semibold text-red-600">
+                      Quitar
+                    </button>
+                  </div>
+                </div>
+              ) : selectedFiles.length === 0 ? (
+                <p className="text-sm text-slate-500">Todavía no has agregado imágenes, audio ni video. Puedes continuar solo con texto si quieres.</p>
               ) : (
                 <div className="grid max-h-[360px] gap-3 overflow-y-auto sm:grid-cols-2">
                   {previews.map((preview, index) => (
@@ -323,7 +440,7 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
 
             <button
               onClick={handleProcess}
-              disabled={loading || (selectedFiles.length === 0 && !supplementalText.trim())}
+              disabled={loading || (selectedFiles.length === 0 && !selectedAudioFile && !selectedVideoFile && !supplementalText.trim())}
               className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:bg-slate-300"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}

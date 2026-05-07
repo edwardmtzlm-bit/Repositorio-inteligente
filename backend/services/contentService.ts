@@ -2,6 +2,7 @@ import { generateDocxBuffer } from './docxService';
 import { appendContentToGeneralGoogleDoc, getGeneralGoogleDocUrl, syncContentsToGeneralGoogleDoc } from './googleDocsService';
 import { answerRepositoryQuestion, generateKnowledgeMetadata, transcribeAudioBuffer } from './aiService';
 import { deleteContentAudioNote, downloadContentAudioNote, listContentAudioNotes, removeAllContentAudioNotes, updateAudioTranscription, uploadContentAudioNote } from './contentAudioService';
+import { deleteContentVideoNote, listContentVideoNotes, removeAllContentVideoNotes, uploadContentVideoNote } from './contentVideoService';
 import { detectLanguage } from './languageService';
 import { getCatalogTagBlockLookup, getTagCatalog } from './tagCatalogService';
 import { uploadDocx } from './storageService';
@@ -642,14 +643,29 @@ export async function getContentAudioNotes(contentId: string) {
   return listContentAudioNotes(contentId);
 }
 
+export async function getContentVideoNotes(contentId: string) {
+  await ensureContentExists(contentId);
+  return listContentVideoNotes(contentId);
+}
+
 export async function attachAudioToContent(contentId: string, file: Buffer, mimeType: string, originalName: string) {
   await ensureContentExists(contentId);
   return uploadContentAudioNote(contentId, file, mimeType, originalName);
 }
 
+export async function attachVideoToContent(contentId: string, file: Buffer, mimeType: string, originalName: string) {
+  await ensureContentExists(contentId);
+  return uploadContentVideoNote(contentId, file, mimeType, originalName);
+}
+
 export async function removeAudioFromContent(contentId: string, fileName: string) {
   await ensureContentExists(contentId);
   return deleteContentAudioNote(contentId, fileName);
+}
+
+export async function removeVideoFromContent(contentId: string, fileName: string) {
+  await ensureContentExists(contentId);
+  return deleteContentVideoNote(contentId, fileName);
 }
 
 export async function transcribeContentAudio(contentId: string, fileName: string) {
@@ -732,6 +748,12 @@ export async function deleteContent(contentId: string) {
     await removeAllContentAudioNotes(contentId);
   } catch (audioCleanupError) {
     console.warn(`No fue posible limpiar audios del contenido eliminado ${contentId}:`, audioCleanupError);
+  }
+
+  try {
+    await removeAllContentVideoNotes(contentId);
+  } catch (videoCleanupError) {
+    console.warn(`No fue posible limpiar videos del contenido eliminado ${contentId}:`, videoCleanupError);
   }
 
   await rebuildGeneralDocFromDatabase();

@@ -40,6 +40,14 @@ export interface ContentAudioNote {
   transcribedAt: string | null;
 }
 
+export interface ContentVideoNote {
+  fileName: string;
+  originalName: string;
+  fileUrl: string;
+  mimeType: string;
+  uploadedAt: string;
+}
+
 export interface RepositoryAssistantResponse {
   answer: string;
   matchedContentIds: string[];
@@ -59,6 +67,11 @@ export interface ProcessingDraftGroup {
   id: string;
   imageUrls: string[];
   coverImageUrl: string;
+  sourceInputType?: 'images' | 'audio' | 'video' | 'text';
+  sourceAudioName?: string;
+  sourceAudioFile?: File | null;
+  sourceVideoName?: string;
+  sourceVideoFile?: File | null;
   sourceUrl: string;
   customTitle: string;
   originalText: string;

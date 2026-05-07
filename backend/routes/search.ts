@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { appendImagesToContent, attachAudioToContent, deleteContent, enrichContent, getContentAudioNotes, getLibraryDocxUrl, listContents, queryRepositoryAssistant, regenerateExistingDocuments, removeAudioFromContent, saveContent, syncExistingContentsToLibraryDoc, transcribeContentAudio, updateContentMetadata } from '../services/contentService';
+import { appendImagesToContent, attachAudioToContent, attachVideoToContent, deleteContent, enrichContent, getContentAudioNotes, getContentVideoNotes, getLibraryDocxUrl, listContents, queryRepositoryAssistant, regenerateExistingDocuments, removeAudioFromContent, removeVideoFromContent, saveContent, syncExistingContentsToLibraryDoc, transcribeContentAudio, updateContentMetadata } from '../services/contentService';
 
 export const searchRouter = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -119,6 +119,46 @@ searchRouter.delete('/contents/:contentId/audio/:fileName', async (req, res) => 
     console.error('Error en DELETE /api/contents/:contentId/audio/:fileName:', error);
     return res.status(500).json({
       error: error instanceof Error ? error.message : 'No fue posible eliminar el audio.',
+    });
+  }
+});
+
+searchRouter.get('/contents/:contentId/video', async (req, res) => {
+  try {
+    const notes = await getContentVideoNotes(req.params.contentId);
+    return res.json({ notes });
+  } catch (error) {
+    console.error('Error en GET /api/contents/:contentId/video:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'No fue posible cargar los videos del contenido.',
+    });
+  }
+});
+
+searchRouter.post('/contents/:contentId/video', upload.single('video'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Debes seleccionar un archivo de video.' });
+    }
+
+    const notes = await attachVideoToContent(req.params.contentId, req.file.buffer, req.file.mimetype, req.file.originalname);
+    return res.status(201).json({ notes });
+  } catch (error) {
+    console.error('Error en POST /api/contents/:contentId/video:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'No fue posible adjuntar el video al contenido.',
+    });
+  }
+});
+
+searchRouter.delete('/contents/:contentId/video/:fileName', async (req, res) => {
+  try {
+    const notes = await removeVideoFromContent(req.params.contentId, req.params.fileName);
+    return res.json({ notes });
+  } catch (error) {
+    console.error('Error en DELETE /api/contents/:contentId/video/:fileName:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'No fue posible eliminar el video.',
     });
   }
 });

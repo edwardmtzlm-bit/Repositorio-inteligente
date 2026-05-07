@@ -1,8 +1,8 @@
-import { Download, ExternalLink, FilePlus2, FileText, Images, Loader2, Mic, Save, Sparkles, Tag, Trash2, X } from 'lucide-react';
+import { Download, ExternalLink, FilePlus2, FileText, Images, Loader2, Mic, Save, Sparkles, Tag, Trash2, Video, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { appendContentImages, deleteContentAudio, enrichContent, fetchContentAudioNotes, transcribeContentAudio, updateContentMetadata, uploadContentAudio, uploadExtraImages } from '../lib/api';
+import { appendContentImages, deleteContentAudio, deleteContentVideo, enrichContent, fetchContentAudioNotes, fetchContentVideoNotes, transcribeContentAudio, updateContentMetadata, uploadContentAudio, uploadContentVideo, uploadExtraImages } from '../lib/api';
 import { formatTextForReading } from '../lib/documentTextFormatter';
-import type { ContentAudioNote, ContentListItem } from '../types/content';
+import type { ContentAudioNote, ContentListItem, ContentVideoNote } from '../types/content';
 
 interface ContentDetailDialogProps {
   item: ContentListItem | null;
@@ -20,14 +20,19 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
   const [audioNotes, setAudioNotes] = useState<ContentAudioNote[]>([]);
+  const [videoNotes, setVideoNotes] = useState<ContentVideoNote[]>([]);
   const [loadingAudioNotes, setLoadingAudioNotes] = useState(false);
+  const [loadingVideoNotes, setLoadingVideoNotes] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
   const [transcribingAudioFile, setTranscribingAudioFile] = useState<string | null>(null);
   const [deletingAudioFile, setDeletingAudioFile] = useState<string | null>(null);
+  const [deletingVideoFile, setDeletingVideoFile] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const inventorySectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -47,10 +52,12 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
 
     if (!item) {
       setAudioNotes([]);
+      setVideoNotes([]);
       return;
     }
 
     setLoadingAudioNotes(true);
+    setLoadingVideoNotes(true);
     void fetchContentAudioNotes(item.id)
       .then((result) => {
         if (!cancelled) {
@@ -65,6 +72,23 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
       .finally(() => {
         if (!cancelled) {
           setLoadingAudioNotes(false);
+        }
+      });
+
+    void fetchContentVideoNotes(item.id)
+      .then((result) => {
+        if (!cancelled) {
+          setVideoNotes(result.notes);
+        }
+      })
+      .catch((videoError) => {
+        if (!cancelled) {
+          setError(videoError instanceof Error ? videoError.message : 'No fue posible cargar los videos adjuntos.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingVideoNotes(false);
         }
       });
 
@@ -241,6 +265,29 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
     }
   };
 
+  const handleVideoSelected = async (files?: FileList | null) => {
+    const selectedFile = files?.[0];
+
+    if (!selectedFile) {
+      return;
+    }
+
+    setUploadingVideo(true);
+    setError(null);
+
+    try {
+      const { notes } = await uploadContentVideo(item.id, selectedFile);
+      setVideoNotes(notes);
+    } catch (videoError) {
+      setError(videoError instanceof Error ? videoError.message : 'No fue posible adjuntar el video.');
+    } finally {
+      setUploadingVideo(false);
+      if (videoInputRef.current) {
+        videoInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleDeleteAudio = async (fileName: string) => {
     const shouldDelete = window.confirm('¿Eliminar este audio adjunto?');
 
@@ -272,6 +319,26 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
       setError(audioError instanceof Error ? audioError.message : 'No fue posible transcribir el audio adjunto.');
     } finally {
       setTranscribingAudioFile(null);
+    }
+  };
+
+  const handleDeleteVideo = async (fileName: string) => {
+    const shouldDelete = window.confirm('¿Eliminar este video adjunto?');
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setDeletingVideoFile(fileName);
+    setError(null);
+
+    try {
+      const { notes } = await deleteContentVideo(item.id, fileName);
+      setVideoNotes(notes);
+    } catch (videoError) {
+      setError(videoError instanceof Error ? videoError.message : 'No fue posible eliminar el video adjunto.');
+    } finally {
+      setDeletingVideoFile(null);
     }
   };
 
@@ -360,6 +427,13 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
               className="hidden"
               onChange={(event) => void handleAudioSelected(event.target.files)}
             />
+            <input
+              ref={videoInputRef}
+              type="file"
+              accept="video/*"
+              className="hidden"
+              onChange={(event) => void handleVideoSelected(event.target.files)}
+            />
 
             <div className="flex flex-wrap items-center gap-3">
               {(item.fuente_url || hasImageSource) && (
@@ -404,6 +478,61 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
                 </button>
                 <span className="text-xs text-slate-500">Este cambio actualiza el Word individual y el Google Doc general.</span>
               </div>
+            </section>
+
+            <section className="rounded-[1.5rem] border border-slate-200 p-6">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Video className="h-4 w-4 text-slate-500" />
+                  <p className="text-sm font-semibold text-slate-800">Adjuntar video</p>
+                  <span className="text-xs text-slate-400">{videoNotes.length}</span>
+                </div>
+                <button
+                  onClick={() => videoInputRef.current?.click()}
+                  disabled={uploadingVideo}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-950 disabled:opacity-60"
+                >
+                  {uploadingVideo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
+                  {uploadingVideo ? 'Subiendo...' : 'Adjuntar video'}
+                </button>
+              </div>
+
+              {loadingVideoNotes ? (
+                <div className="flex items-center gap-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Cargando videos...
+                </div>
+              ) : videoNotes.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                  Este artículo todavía no tiene videos adjuntos.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {videoNotes.map((note) => (
+                    <div key={note.fileName} className="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{note.originalName}</p>
+                          <p className="mt-1 text-xs text-slate-500">{new Date(note.uploadedAt).toLocaleString('es-MX')}</p>
+                        </div>
+                        <button
+                          onClick={() => void handleDeleteVideo(note.fileName)}
+                          disabled={deletingVideoFile === note.fileName}
+                          className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:border-red-500 hover:bg-red-50 disabled:opacity-60"
+                        >
+                          {deletingVideoFile === note.fileName ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          Eliminar
+                        </button>
+                      </div>
+
+                      <video controls className="mt-4 w-full rounded-2xl bg-slate-950">
+                        <source src={note.fileUrl} type={note.mimeType} />
+                        Tu navegador no soporta la reproducción de este video.
+                      </video>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="rounded-[1.5rem] border border-slate-200 p-6">

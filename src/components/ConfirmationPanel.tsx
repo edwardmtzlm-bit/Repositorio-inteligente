@@ -1,6 +1,6 @@
-import { Download, FilePlus2, FileText, Loader2, Save, X } from 'lucide-react';
+import { Download, FilePlus2, FileText, Loader2, Mic, Save, Video, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { saveContent, uploadExtraImages } from '../lib/api';
+import { saveContent, uploadContentAudio, uploadContentVideo, uploadExtraImages } from '../lib/api';
 import { formatTextForReading } from '../lib/documentTextFormatter';
 import type { ProcessingDraftGroup, ProcessingResponse, SaveContentPayload, TagOption } from '../types/content';
 
@@ -200,7 +200,15 @@ export function ConfirmationPanel({ data, open, onClose, onSaved }: Confirmation
           selectedTags,
         };
 
-        await saveContent(payload);
+        const savedContent = await saveContent(payload);
+
+        if (group.sourceInputType === 'audio' && group.sourceAudioFile) {
+          await uploadContentAudio(savedContent.id, group.sourceAudioFile);
+        }
+
+        if (group.sourceInputType === 'video' && group.sourceVideoFile) {
+          await uploadContentVideo(savedContent.id, group.sourceVideoFile);
+        }
       }
 
       onSaved();
@@ -301,6 +309,30 @@ export function ConfirmationPanel({ data, open, onClose, onSaved }: Confirmation
                             <span className="text-sm font-semibold">Agregar imágenes</span>
                             <span className="mt-1 px-3 text-center text-[11px] text-slate-500">Súbelas manualmente para incluirlas en este documento</span>
                           </button>
+                        </div>
+                      ) : group.sourceInputType === 'audio' && group.sourceAudioName ? (
+                        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 text-slate-600">
+                          <div className="flex items-center gap-3">
+                            <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+                              <Mic className="h-5 w-5 text-slate-700" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">{group.sourceAudioName}</p>
+                              <p className="text-xs text-slate-500">Contenido generado desde audio. El archivo se adjuntará al artículo al guardar.</p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : group.sourceInputType === 'video' && group.sourceVideoName ? (
+                        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 text-slate-600">
+                          <div className="flex items-center gap-3">
+                            <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+                              <Video className="h-5 w-5 text-slate-700" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">{group.sourceVideoName}</p>
+                              <p className="text-xs text-slate-500">Contenido generado desde video. El archivo se adjuntará al artículo al guardar.</p>
+                            </div>
+                          </div>
                         </div>
                       ) : (
                         <div className="grid gap-3 sm:grid-cols-2">
