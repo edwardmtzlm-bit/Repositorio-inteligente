@@ -163,6 +163,7 @@ export function UploadDialog({ open, onClose, onProcessed }: UploadDialogProps) 
           return {
             id: group.id || `group-${index + 1}`,
             imageUrls: Array.isArray(group.imageUrls) ? group.imageUrls : [],
+            imageFingerprints: Array.isArray(group.imageFingerprints) ? group.imageFingerprints : [],
             coverImageUrl: group.coverImageUrl || group.imageUrls?.[0] || '',
             sourceInputType: group.sourceInputType || (selectedAudioFile ? 'audio' : selectedVideoFile ? 'video' : selectedFiles.length > 0 ? 'images' : 'text'),
             sourceAudioName: group.sourceAudioName || selectedAudioFile?.name || '',

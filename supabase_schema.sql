@@ -41,9 +41,22 @@ create table if not exists contenido_tags (
   primary key (contenido_id, tag_id)
 );
 
+create table if not exists contenido_imagenes (
+  id uuid primary key default gen_random_uuid(),
+  contenido_id uuid not null references contenidos(id) on delete cascade,
+  image_url text not null,
+  original_name text not null default '',
+  sha256 text,
+  perceptual_hash text,
+  ocr_text text not null default '',
+  created_at timestamptz not null default timezone('utc'::text, now()),
+  unique (contenido_id, image_url)
+);
+
 alter table tags enable row level security;
 alter table contenidos enable row level security;
 alter table contenido_tags enable row level security;
+alter table contenido_imagenes enable row level security;
 
 drop policy if exists "public read tags" on tags;
 create policy "public read tags" on tags for select using (true);
@@ -62,6 +75,12 @@ create policy "public read contenido_tags" on contenido_tags for select using (t
 
 drop policy if exists "service full contenido_tags" on contenido_tags;
 create policy "service full contenido_tags" on contenido_tags for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
+
+drop policy if exists "public read contenido_imagenes" on contenido_imagenes;
+create policy "public read contenido_imagenes" on contenido_imagenes for select using (true);
+
+drop policy if exists "service full contenido_imagenes" on contenido_imagenes;
+create policy "service full contenido_imagenes" on contenido_imagenes for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
 
 insert into tags (nombre, tipo, frecuencia)
 values

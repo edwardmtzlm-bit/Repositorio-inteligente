@@ -9,6 +9,7 @@ import { getRelevantCatalogBlocks, getTagCatalog } from '../services/tagCatalogS
 import { uploadDocx, uploadImage } from '../services/storageService';
 import { buildHybridTags } from '../services/tagService';
 import { groupImagesByTheme } from '../utils/themeGrouping';
+import { hashImageBuffer } from '../services/imageSearchService';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -29,6 +30,8 @@ async function buildPerImageDrafts(files: Express.Multer.File[]) {
   const drafts: Array<{
     index: number;
     imageUrl: string;
+    originalName: string;
+    sha256: string;
     originalText: string;
     detectedLanguage: 'es' | 'en';
   }> = [];
@@ -48,6 +51,8 @@ async function buildPerImageDrafts(files: Express.Multer.File[]) {
       drafts.push({
         index,
         imageUrl,
+        originalName: file.originalname,
+        sha256: hashImageBuffer(file.buffer),
         originalText,
         detectedLanguage,
       });
@@ -121,9 +126,10 @@ processRouter.post('/', upload.fields([{ name: 'images', maxCount: 20 }, { name:
         totalImages: 0,
         groups: [
           {
-            id: randomUUID(),
-            imageUrls: [],
-            coverImageUrl: '',
+          id: randomUUID(),
+          imageUrls: [],
+          imageFingerprints: [],
+          coverImageUrl: '',
             sourceInputType: audioFile ? 'audio' : 'video',
             sourceAudioName: audioFile?.originalname || '',
             sourceVideoName: videoFile?.originalname || '',
@@ -177,6 +183,7 @@ processRouter.post('/', upload.fields([{ name: 'images', maxCount: 20 }, { name:
           {
             id: randomUUID(),
             imageUrls: [],
+            imageFingerprints: [],
             coverImageUrl: '',
             sourceUrl,
             customTitle,
@@ -238,6 +245,12 @@ processRouter.post('/', upload.fields([{ name: 'images', maxCount: 20 }, { name:
         return {
           id: randomUUID(),
           imageUrls: groupedItems.map((item) => item.imageUrl),
+          imageFingerprints: groupedItems.map((item) => ({
+            imageUrl: item.imageUrl,
+            originalName: item.originalName,
+            sha256: item.sha256,
+            ocrText: item.originalText,
+          })),
           coverImageUrl: groupedItems[0]?.imageUrl || '',
           sourceUrl,
           customTitle,
@@ -283,9 +296,23 @@ processRouter.post('/upload', upload.array('images', 20), async (req, res) => {
       return res.status(400).json({ error: 'Debes seleccionar al menos una imagen.' });
     }
 
-    const urls = await Promise.all(files.map((file) => uploadImage(file.buffer, file.mimetype, file.originalname)));
+    const images = await Promise.all(
+      files.map(async (file) => {
+        const [imageUrl, ocrText] = await Promise.all([
+          uploadImage(file.buffer, file.mimetype, file.originalname),
+          extractTextFromImage(file.buffer, file.mimetype).catch(() => ''),
+        ]);
 
-    return res.json({ urls });
+        return {
+          imageUrl,
+          originalName: file.originalname,
+          sha256: hashImageBuffer(file.buffer),
+          ocrText,
+        };
+      }),
+    );
+
+    return res.json({ urls: images.map((image) => image.imageUrl), images });
   } catch (error) {
     console.error('Error en /api/process-image/upload:', error);
     return res.status(500).json({

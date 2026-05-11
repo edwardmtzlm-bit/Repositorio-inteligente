@@ -152,10 +152,11 @@ export function ConfirmationPanel({ data, open, onClose, onSaved }: Confirmation
     setError(null);
 
     try {
-      const { urls } = await uploadExtraImages(selectedFiles);
+      const { urls, images } = await uploadExtraImages(selectedFiles);
       updateGroup(pendingGroupId, (current) => ({
         ...current,
         imageUrls: [...current.imageUrls, ...urls],
+        imageFingerprints: [...(current.imageFingerprints || []), ...(images || urls.map((imageUrl) => ({ imageUrl })))],
         coverImageUrl: current.coverImageUrl || urls[0] || '',
         sourceImageCount: current.sourceImageCount + urls.length,
       }));
@@ -189,6 +190,7 @@ export function ConfirmationPanel({ data, open, onClose, onSaved }: Confirmation
         const payload: SaveContentPayload = {
           imageUrl: group.coverImageUrl,
           imageUrls: group.imageUrls,
+          imageFingerprints: group.imageFingerprints,
           sourceUrl: group.sourceUrl,
           notes: group.notes,
           originalText: group.originalText,

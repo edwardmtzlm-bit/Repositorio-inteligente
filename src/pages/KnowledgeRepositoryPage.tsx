@@ -29,13 +29,23 @@ export function KnowledgeRepositoryPage() {
     );
   };
 
-  const assistantMatchedItems = items
-    .filter((item) => assistantResult?.matchedContentIds.includes(item.id))
-    .map((item) => ({
-      id: item.id,
-      title: item.titulo,
-      summary: item.resumen,
-    }));
+  const assistantMatchedItems: Array<{ id: string; title: string; summary: string; reason?: string }> = (assistantResult?.matchedContentIds || [])
+    .map((id) => {
+      const item = items.find((current) => current.id === id);
+      const reviewed = assistantResult?.reviewedItems.find((current) => current.id === id);
+
+      if (!item) {
+        return null;
+      }
+
+      return {
+        id: item.id,
+        title: item.titulo,
+        summary: item.resumen,
+        reason: reviewed?.reason,
+      };
+    })
+    .filter(Boolean) as Array<{ id: string; title: string; summary: string; reason?: string }>;
   const visibleItems =
     assistantFilterActive && assistantResult?.matchedContentIds.length
       ? items.filter((item) => assistantResult.matchedContentIds.includes(item.id))

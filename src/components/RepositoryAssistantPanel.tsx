@@ -1,6 +1,6 @@
-import { Bot, Loader2, RotateCcw, Send, Sparkles, X } from 'lucide-react';
-import { useState } from 'react';
-import { queryRepositoryAssistant } from '../lib/api';
+import { Bot, Image, Loader2, RotateCcw, Send, Sparkles, X } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { queryRepositoryAssistant, queryRepositoryByImage } from '../lib/api';
 import type { RepositoryAssistantMatch, RepositoryAssistantResponse } from '../types/content';
 
 interface RepositoryAssistantPanelProps {
@@ -26,8 +26,10 @@ export function RepositoryAssistantPanel({
 }: RepositoryAssistantPanelProps) {
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<RepositoryAssistantResponse | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const resetAssistant = () => {
     setQuestion('');
@@ -60,6 +62,34 @@ export function RepositoryAssistantPanel({
       onResults(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleImageSearch = async (files?: FileList | null) => {
+    const file = files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setImageLoading(true);
+    setError(null);
+    setResponse(null);
+    onResults(null);
+
+    try {
+      const result = await queryRepositoryByImage(file);
+      setResponse(result);
+      onResults(result);
+    } catch (queryError) {
+      const message = queryError instanceof Error ? queryError.message : 'No fue posible buscar por imagen.';
+      setError(message);
+      onResults(null);
+    } finally {
+      setImageLoading(false);
+      if (imageInputRef.current) {
+        imageInputRef.current.value = '';
+      }
     }
   };
 
@@ -99,11 +129,33 @@ export function RepositoryAssistantPanel({
             </button>
             <button
               onClick={resetAssistant}
-              disabled={loading || (!question.trim() && !response && !error)}
+              disabled={loading || imageLoading || (!question.trim() && !response && !error)}
               className="mt-3 ml-2 inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-950 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RotateCcw className="h-4 w-4" />
               Limpiar
+            </button>
+          </section>
+
+          <section className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => void handleImageSearch(event.target.files)}
+            />
+            <div className="mb-3 flex items-center gap-2 text-slate-800">
+              <Image className="h-4 w-4" />
+              <p className="text-sm font-semibold">Buscar si una imagen ya existe</p>
+            </div>
+            <button
+              onClick={() => imageInputRef.current?.click()}
+              disabled={loading || imageLoading}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-950 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {imageLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
+              {imageLoading ? 'Buscando imagen...' : 'Seleccionar imagen'}
             </button>
           </section>
 
@@ -117,7 +169,7 @@ export function RepositoryAssistantPanel({
               </div>
               <p className="text-sm leading-7 text-slate-700">{response.answer}</p>
               <p className="mt-4 text-xs text-slate-500">
-                Se revisaron {response.candidateCount} artículos candidatos posibles y {response.matchedContentIds.length} coincidió/coincidieron con suficiente claridad para resaltarse.
+                Se revisaron {response.candidateCount} artículos del repositorio y {response.matchedContentIds.length} coincidió/coincidieron con suficiente claridad para resaltarse.
               </p>
 
               {matchedItems.length > 0 && (
@@ -137,6 +189,7 @@ export function RepositoryAssistantPanel({
                     <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
                       <p className="text-sm font-semibold text-slate-900">{item.title}</p>
                       <p className="mt-1 line-clamp-3 text-sm leading-6 text-slate-600">{item.summary}</p>
+                      {item.reason && <p className="mt-2 text-xs leading-5 text-amber-700">{item.reason}</p>}
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           onClick={() => onRevealItem(item.id)}
@@ -156,6 +209,41 @@ export function RepositoryAssistantPanel({
                 </div>
               )}
 
+              {!!response.groups?.length && (
+                <div className="mt-5 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Posibles duplicados</p>
+                  {response.groups.map((group) => (
+                    <div key={`${group.type}-${group.title}`} className="rounded-2xl border border-slate-200 bg-white p-3">
+                      <p className="text-sm font-semibold text-slate-900">{group.title}</p>
+                      {group.description && <p className="mt-1 text-xs text-slate-500">{group.description}</p>}
+                      <div className="mt-3 space-y-3">
+                        {group.items.map((item) => (
+                          <div key={`${group.title}-${item.id}`} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                            <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-600">{item.summary}</p>
+                            {item.reason && <p className="mt-2 text-xs leading-5 text-amber-700">{item.reason}</p>}
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                onClick={() => onRevealItem(item.id)}
+                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-950"
+                              >
+                                Ver en pantalla
+                              </button>
+                              <button
+                                onClick={() => onOpenItem(item.id)}
+                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-950"
+                              >
+                                Abrir artículo
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {response.reviewedItems.length > matchedItems.length && (
                 <div className="mt-5 space-y-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Candidatos revisados</p>
@@ -165,6 +253,7 @@ export function RepositoryAssistantPanel({
                       <div key={`reviewed-${item.id}`} className="rounded-2xl border border-slate-200 bg-white p-3">
                         <p className="text-sm font-semibold text-slate-900">{item.title}</p>
                         <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-600">{item.summary}</p>
+                        {item.reason && <p className="mt-2 text-xs leading-5 text-amber-700">{item.reason}</p>}
                         <button
                           onClick={() => onOpenItem(item.id)}
                           className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-950"

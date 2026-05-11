@@ -35,7 +35,13 @@ export interface RepositoryAssistantResult {
   answer: string;
   matchedContentIds: string[];
   candidateCount: number;
-  reviewedItems: Array<{ id: string; title: string; summary: string }>;
+  reviewedItems: Array<{ id: string; title: string; summary: string; reason?: string }>;
+  groups?: Array<{
+    type: 'duplicate-pair';
+    title: string;
+    description?: string;
+    items: Array<{ id: string; title: string; summary: string; reason?: string }>;
+  }>;
 }
 
 export async function transcribeMediaBuffer(buffer: Buffer, mimeType: string, originalName: string) {
@@ -369,6 +375,7 @@ Instrucciones:
 5. Devuelve entre 0 y 5 IDs relevantes en matchedContentIds.
 6. No incluyas IDs que no aparezcan en la lista.
 7. No menciones IDs internos en la redacción final. Habla de los artículos por tema o por título.
+8. Para cada artículo que marques en matchedContentIds, devuelve también una razón corta en matchedExplanations.
 
 Responde solo JSON.
 `;
@@ -386,8 +393,19 @@ Responde solo JSON.
             type: Type.ARRAY,
             items: { type: Type.STRING },
           },
+          matchedExplanations: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                reason: { type: Type.STRING },
+              },
+              required: ['id', 'reason'],
+            },
+          },
         },
-        required: ['answer', 'matchedContentIds'],
+        required: ['answer', 'matchedContentIds', 'matchedExplanations'],
       },
     },
   });
@@ -398,9 +416,18 @@ Responde solo JSON.
     throw new Error('La IA no devolvió respuesta para la consulta del repositorio.');
   }
 
-  const parsed = JSON.parse(response) as Pick<RepositoryAssistantResult, 'answer' | 'matchedContentIds'>;
+  const parsed = JSON.parse(response) as {
+    answer: string;
+    matchedContentIds: string[];
+    matchedExplanations?: Array<{ id: string; reason: string }>;
+  };
   const validIds = new Set(candidates.map((candidate) => candidate.id));
   const matchedContentIds = (parsed.matchedContentIds || []).filter((id, index, list) => validIds.has(id) && list.indexOf(id) === index).slice(0, 5);
+  const reasonMap = new Map(
+    (parsed.matchedExplanations || [])
+      .filter((entry) => entry?.id && entry?.reason && validIds.has(entry.id))
+      .map((entry) => [entry.id, entry.reason.trim()]),
+  );
 
   return {
     answer: parsed.answer.trim(),
@@ -410,6 +437,7 @@ Responde solo JSON.
       id: candidate.id,
       title: candidate.title,
       summary: candidate.summary,
+      reason: reasonMap.get(candidate.id),
     })),
   };
 }

@@ -229,8 +229,8 @@ export function ContentDetailDialog({ item, onClose, onUpdated, onDeleted }: Con
     setError(null);
 
     try {
-      const { urls } = await uploadExtraImages(Array.from(files));
-      const updatedContent = await appendContentImages(item.id, urls);
+      const { urls, images } = await uploadExtraImages(Array.from(files));
+      const updatedContent = await appendContentImages(item.id, urls, images);
       onUpdated(updatedContent);
     } catch (imageError) {
       setError(imageError instanceof Error ? imageError.message : 'No fue posible agregar imágenes al inventario');

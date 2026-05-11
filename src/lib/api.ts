@@ -232,16 +232,20 @@ export async function uploadExtraImages(files: File[]) {
     body: formData,
   });
 
-  return parseJson<{ urls: string[] }>(response);
+  return parseJson<{ urls: string[]; images?: Array<{ imageUrl: string; originalName?: string; sha256?: string; ocrText?: string }> }>(response);
 }
 
-export async function appendContentImages(contentId: string, imageUrls: string[]) {
+export async function appendContentImages(
+  contentId: string,
+  imageUrls: string[],
+  imageFingerprints: Array<{ imageUrl: string; originalName?: string; sha256?: string; ocrText?: string }> = [],
+) {
   const response = await fetchWithFallback(`/api/contents/${contentId}/images`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ imageUrls }),
+    body: JSON.stringify({ imageUrls, imageFingerprints }),
   });
 
   return parseJson<ContentListItem>(response);
@@ -263,6 +267,18 @@ export async function queryRepositoryAssistant(question: string) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ question }),
+  });
+
+  return parseJson<RepositoryAssistantResponse>(response);
+}
+
+export async function queryRepositoryByImage(file: File) {
+  const formData = new FormData();
+  formData.append('image', file);
+
+  const response = await fetchWithFallback('/api/image-search', {
+    method: 'POST',
+    body: formData,
   });
 
   return parseJson<RepositoryAssistantResponse>(response);

@@ -8,10 +8,12 @@ import { getCatalogTagBlockLookup, getTagCatalog } from './tagCatalogService';
 import { uploadDocx } from './storageService';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { ensureTags, type TagRecord } from './tagService';
+import { saveContentImageFingerprints, type ImageFingerprintInput } from './imageSearchService';
 
 export interface SaveContentInput {
   imageUrl: string;
   imageUrls: string[];
+  imageFingerprints?: ImageFingerprintInput[];
   sourceUrl: string;
   notes: string;
   originalText: string;
@@ -21,6 +23,18 @@ export interface SaveContentInput {
   longSummary: string;
   docxUrl?: string;
   selectedTags: Array<Pick<TagRecord, 'id' | 'nombre' | 'tipo'>>;
+}
+
+interface AssistantRepositoryItem {
+  id: string;
+  titulo: string;
+  resumen: string;
+  resumen_largo: string;
+  texto_original: string;
+  texto_traducido: string;
+  fuente_url: string | null;
+  fecha: string;
+  tags: Array<{ nombre: string; bloque: string | null }>;
 }
 
 function tokenizeAssistantText(text: string) {
@@ -80,6 +94,306 @@ function buildRepositoryCountAnswer(totalCount: number) {
   }
 
   return `Actualmente hay ${totalCount} artículos cargados en el repositorio.`;
+}
+
+const assistantStopwords = new Set([
+  'que',
+  'cual',
+  'cuales',
+  'cuanto',
+  'cuantos',
+  'cuanta',
+  'cuantas',
+  'hay',
+  'tengo',
+  'tenemos',
+  'alguno',
+  'alguna',
+  'algun',
+  'sobre',
+  'del',
+  'de',
+  'la',
+  'las',
+  'los',
+  'el',
+  'un',
+  'una',
+  'unos',
+  'unas',
+  'por',
+  'para',
+  'con',
+  'sin',
+  'van',
+  'cargados',
+  'cargadas',
+  'archivo',
+  'archivos',
+  'articulo',
+  'articulos',
+  'contenido',
+  'contenidos',
+  'documento',
+  'documentos',
+  'tema',
+  'temas',
+  'repositorio',
+  'actualmente',
+  'actual',
+  'mios',
+  'mias',
+  'mio',
+  'mia',
+  'hablen',
+  'habla',
+  'hablar',
+  'digan',
+  'dime',
+  'mostrar',
+  'muéstrame',
+  'muestrame',
+]);
+
+function includesAnyPhrase(question: string, phrases: string[]) {
+  return phrases.some((phrase) => question.includes(phrase));
+}
+
+function extractMeaningfulAssistantTokens(question: string) {
+  return Array.from(
+    new Set(
+      tokenizeAssistantText(normalizeAssistantQuestion(question)).filter(
+        (token) => token.length >= 3 && !assistantStopwords.has(token),
+      ),
+    ),
+  );
+}
+
+function buildAssistantReviewedItems(
+  items: AssistantRepositoryItem[],
+  reasonById = new Map<string, string>(),
+  limit = 8,
+) {
+  return items.slice(0, limit).map((item) => ({
+    id: item.id,
+    title: item.titulo,
+    summary: item.resumen_largo || item.resumen,
+    reason: reasonById.get(item.id),
+  }));
+}
+
+function buildAssistantGroups(
+  groups: Array<{
+    type: 'duplicate-pair';
+    title: string;
+    description?: string;
+    items: AssistantRepositoryItem[];
+  }>,
+  reasonById = new Map<string, string>(),
+) {
+  return groups.map((group) => ({
+    type: group.type,
+    title: group.title,
+    description: group.description,
+    items: group.items.map((item) => ({
+      id: item.id,
+      title: item.titulo,
+      summary: item.resumen_largo || item.resumen,
+      reason: reasonById.get(item.id),
+    })),
+  }));
+}
+
+function buildAssistantResponse(
+  answer: string,
+  matchedItems: AssistantRepositoryItem[],
+  reviewedItems = matchedItems,
+  candidateCount = reviewedItems.length,
+  reasonById = new Map<string, string>(),
+  groups: Array<{
+    type: 'duplicate-pair';
+    title: string;
+    description?: string;
+    items: AssistantRepositoryItem[];
+  }> = [],
+) {
+  return {
+    answer,
+    matchedContentIds: matchedItems.map((item) => item.id),
+    candidateCount,
+    reviewedItems: buildAssistantReviewedItems(reviewedItems, reasonById),
+    groups: buildAssistantGroups(groups, reasonById),
+  };
+}
+
+function rankAssistantContents(contents: AssistantRepositoryItem[], question: string) {
+  return contents
+    .map((item) => ({
+      item,
+      score: scoreAssistantMatch(question, {
+        title: item.titulo,
+        summary: item.resumen_largo || item.resumen,
+        translatedText: item.texto_traducido,
+        tags: item.tags,
+      }),
+    }))
+    .sort((left, right) => right.score - left.score);
+}
+
+function tokenizeSimilarityText(text: string) {
+  return new Set(
+    (normalizeAssistantQuestion(text).match(/[a-z0-9]+/g) || []).filter((token) => token.length >= 4),
+  );
+}
+
+function overlapScore(left: string, right: string) {
+  const leftTokens = tokenizeSimilarityText(left);
+  const rightTokens = tokenizeSimilarityText(right);
+
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
+    return 0;
+  }
+
+  let intersection = 0;
+
+  leftTokens.forEach((token) => {
+    if (rightTokens.has(token)) {
+      intersection += 1;
+    }
+  });
+
+  return intersection / Math.max(1, Math.min(leftTokens.size, rightTokens.size));
+}
+
+function contentSimilarity(left: AssistantRepositoryItem, right: AssistantRepositoryItem) {
+  const titleScore = overlapScore(left.titulo, right.titulo);
+  const summaryScore = overlapScore(
+    `${left.resumen} ${left.resumen_largo} ${left.texto_traducido.slice(0, 400)}`,
+    `${right.resumen} ${right.resumen_largo} ${right.texto_traducido.slice(0, 400)}`,
+  );
+
+  return titleScore * 0.65 + summaryScore * 0.35;
+}
+
+function weirdTextRatio(text: string) {
+  const tokens = text
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  if (tokens.length === 0) {
+    return 0;
+  }
+
+  const weirdTokens = tokens.filter((token) => {
+    const stripped = token.replace(/^[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ\d]+|[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ\d]+$/g, '');
+
+    if (!stripped) {
+      return true;
+    }
+
+    if (/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{1,2}$/.test(stripped)) {
+      return true;
+    }
+
+    if (/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{5,}\d+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]*/.test(stripped) || /\d+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{4,}/.test(stripped)) {
+      return true;
+    }
+
+    if (/(.)\1\1/.test(stripped)) {
+      return true;
+    }
+
+    return false;
+  });
+
+  return weirdTokens.length / tokens.length;
+}
+
+function seemsPoorOcr(item: AssistantRepositoryItem) {
+  const baseText = item.texto_original || item.texto_traducido || '';
+  const weirdness = weirdTextRatio(baseText);
+  const summaryShort = (item.resumen || '').trim().length < 50;
+  const textTooShort = baseText.trim().length < 180;
+  return weirdness > 0.16 || (textTooShort && summaryShort);
+}
+
+function isMissingSourceQuestion(question: string) {
+  return includesAnyPhrase(question, ['sin fuente', 'sin fuentes', 'no tienen fuente', 'no tengan fuente', 'faltan fuentes']);
+}
+
+function isMissingSummaryQuestion(question: string) {
+  return includesAnyPhrase(question, ['sin resumen', 'sin resúmen', 'sin resumenes', 'sin resúmenes', 'no tienen resumen', 'no tengan resumen']);
+}
+
+function isWeakTagsQuestion(question: string) {
+  return includesAnyPhrase(question, ['tags debiles', 'tags débiles', 'etiquetas debiles', 'etiquetas débiles', 'sin tags', 'sin etiquetas', 'pocas etiquetas', 'pocos tags']);
+}
+
+function isDuplicateQuestion(question: string) {
+  return includesAnyPhrase(question, ['duplicados', 'duplicado', 'muy parecidos', 'muy parecido', 'similares', 'similar', 'parecidos']);
+}
+
+function isPoorOcrQuestion(question: string) {
+  return includesAnyPhrase(question, ['ocr', 'texto basura', 'textos basura', 'texto raro', 'mala extraccion', 'mala extracción', 'mal extraido', 'mal extraído']);
+}
+
+function isReprocessQuestion(question: string) {
+  return includesAnyPhrase(question, ['reprocesar', 'reprocesado', 'conviene reprocesar', 'debo reprocesar']);
+}
+
+function isAudioQuestion(question: string) {
+  return includesAnyPhrase(question, ['audio adjunto', 'audios adjuntos', 'nota de voz', 'notas de voz', 'audios']);
+}
+
+function isVideoQuestion(question: string) {
+  return includesAnyPhrase(question, ['video adjunto', 'videos adjuntos', 'vídeo adjunto', 'vídeos adjuntos', 'videos']);
+}
+
+function isTranscriptionQuestion(question: string) {
+  return includesAnyPhrase(question, ['transcripcion', 'transcripción', 'transcripciones']);
+}
+
+function isCoverageQuestion(question: string) {
+  return includesAnyPhrase(question, ['temas mas cubiertos', 'temas más cubiertos', 'bloques mas cubiertos', 'bloques más cubiertos', 'temas cubiertos', 'bloques cubiertos']);
+}
+
+function isGrowthQuestion(question: string) {
+  return includesAnyPhrase(question, ['bloques estan creciendo', 'bloques están creciendo', 'temas estan creciendo', 'temas están creciendo', 'estan creciendo', 'están creciendo']);
+}
+
+function isGapQuestion(question: string) {
+  return includesAnyPhrase(question, ['huecos tematicos', 'huecos temáticos', 'huecos de temas', 'temas faltantes', 'poco cubiertos']);
+}
+
+function isTagCatalogQuestion(question: string) {
+  return includesAnyPhrase(question, ['etiquetas sobran', 'tags sobran', 'etiquetas duplicadas', 'tags duplicados', 'etiquetas duplican', 'tags duplican']);
+}
+
+function formatArticleCount(count: number) {
+  if (count === 1) {
+    return '1 artículo';
+  }
+
+  return `${count} artículos`;
+}
+
+async function buildAttachmentMap(
+  contents: AssistantRepositoryItem[],
+  type: 'audio' | 'video',
+) {
+  const pairs = await Promise.all(
+    contents.map(async (item) => {
+      const notes =
+        type === 'audio'
+          ? await listContentAudioNotes(item.id).catch(() => [])
+          : await listContentVideoNotes(item.id).catch(() => []);
+
+      return [item.id, notes] as const;
+    }),
+  );
+
+  return new Map(pairs);
 }
 
 async function replaceContentTags(contentId: string, selectedTags: Array<Pick<TagRecord, 'id' | 'nombre' | 'tipo'>>) {
@@ -386,6 +700,12 @@ export async function saveContent(input: SaveContentInput) {
   }
 
   await replaceContentTags(content.id, input.selectedTags);
+  await saveContentImageFingerprints(
+    content.id,
+    input.imageFingerprints?.length
+      ? input.imageFingerprints
+      : input.imageUrls.map((imageUrl) => ({ imageUrl })),
+  );
 
   await appendContentToGeneralGoogleDoc(
     {
@@ -630,7 +950,7 @@ export async function updateContentMetadata(contentId: string, input: { title: s
   return updatedItem;
 }
 
-export async function appendImagesToContent(contentId: string, imageUrls: string[]) {
+export async function appendImagesToContent(contentId: string, imageUrls: string[], imageFingerprints: ImageFingerprintInput[] = []) {
   const normalizedUrls = imageUrls.map((url) => url.trim()).filter(Boolean);
 
   if (normalizedUrls.length === 0) {
@@ -661,6 +981,11 @@ export async function appendImagesToContent(contentId: string, imageUrls: string
   if (updateError) {
     throw new Error(`No fue posible guardar imágenes adicionales: ${updateError.message}`);
   }
+
+  await saveContentImageFingerprints(
+    contentId,
+    imageFingerprints.length ? imageFingerprints : normalizedUrls.map((imageUrl) => ({ imageUrl })),
+  );
 
   const refreshed = await listContents();
   const updatedItem = refreshed.find((item) => item.id === contentId);
@@ -805,9 +1130,36 @@ export async function queryRepositoryAssistant(question: string) {
     throw new Error('Debes escribir una pregunta para consultar el repositorio.');
   }
 
-  const contents = await listContents();
+  const contents = (await listContents()) as AssistantRepositoryItem[];
+  const normalizedQuestion = normalizeAssistantQuestion(trimmedQuestion);
+  const rankedContents = rankAssistantContents(contents, trimmedQuestion);
+  const positiveMatches = rankedContents.filter((entry) => entry.score > 0).map((entry) => entry.item);
 
   if (isRepositoryCountQuestion(trimmedQuestion)) {
+    const topicTokens = extractMeaningfulAssistantTokens(trimmedQuestion);
+
+    if (topicTokens.length > 0) {
+      if (positiveMatches.length === 0) {
+        return {
+          answer: `No encontré artículos cargados sobre "${topicTokens.join(' ')}" dentro del repositorio actual.`,
+          matchedContentIds: [],
+          candidateCount: contents.length,
+          reviewedItems: [],
+        };
+      }
+
+      const reason = `Coincide con el tema consultado: ${topicTokens.join(', ')}.`;
+      const reasonById = new Map(positiveMatches.map((item) => [item.id, reason]));
+
+      return buildAssistantResponse(
+        `Actualmente hay ${formatArticleCount(positiveMatches.length)} relacionados con "${topicTokens.join(' ')}" en el repositorio.`,
+        positiveMatches,
+        positiveMatches,
+        contents.length,
+        reasonById,
+      );
+    }
+
     return {
       answer: buildRepositoryCountAnswer(contents.length),
       matchedContentIds: [],
@@ -816,31 +1168,359 @@ export async function queryRepositoryAssistant(question: string) {
     };
   }
 
-  const rankedCandidates = contents
-    .map((item) => ({
+  if (isMissingSourceQuestion(normalizedQuestion)) {
+    const itemsWithoutSource = contents.filter((item) => !item.fuente_url);
+    const reasonById = new Map(itemsWithoutSource.map((item) => [item.id, 'No tiene fuente o URL de origen registrada.']));
+
+    return buildAssistantResponse(
+      itemsWithoutSource.length
+        ? `Encontré ${formatArticleCount(itemsWithoutSource.length)} sin fuente registrada.`
+        : 'No encontré artículos sin fuente registrada.',
+      itemsWithoutSource,
+      itemsWithoutSource,
+      contents.length,
+      reasonById,
+    );
+  }
+
+  if (isMissingSummaryQuestion(normalizedQuestion)) {
+    const itemsWithoutSummary = contents.filter((item) => !item.resumen.trim() || item.resumen.trim().length < 50);
+    const reasonById = new Map(itemsWithoutSummary.map((item) => [item.id, 'Tiene un resumen vacío o demasiado corto.']));
+
+    return buildAssistantResponse(
+      itemsWithoutSummary.length
+        ? `Encontré ${formatArticleCount(itemsWithoutSummary.length)} con resumen faltante o demasiado corto.`
+        : 'No detecté artículos con resumen faltante o demasiado corto.',
+      itemsWithoutSummary,
+      itemsWithoutSummary,
+      contents.length,
+      reasonById,
+    );
+  }
+
+  if (isWeakTagsQuestion(normalizedQuestion)) {
+    const weakTagItems = contents.filter((item) => item.tags.length < 2);
+    const reasonById = new Map(weakTagItems.map((item) => [item.id, 'Tiene pocas etiquetas para clasificarlo con fuerza.']));
+
+    return buildAssistantResponse(
+      weakTagItems.length
+        ? `Encontré ${formatArticleCount(weakTagItems.length)} con etiquetas débiles o insuficientes.`
+        : 'No detecté artículos con etiquetas débiles o insuficientes.',
+      weakTagItems,
+      weakTagItems,
+      contents.length,
+      reasonById,
+    );
+  }
+
+  if (isDuplicateQuestion(normalizedQuestion)) {
+    const duplicatePairs: Array<{ score: number; left: AssistantRepositoryItem; right: AssistantRepositoryItem }> = [];
+    const limit = Math.min(contents.length, 120);
+
+    for (let leftIndex = 0; leftIndex < limit; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < limit; rightIndex += 1) {
+        const left = contents[leftIndex];
+        const right = contents[rightIndex];
+        const similarity = contentSimilarity(left, right);
+
+        if (similarity >= 0.58) {
+          duplicatePairs.push({ score: similarity, left, right });
+        }
+      }
+    }
+
+    duplicatePairs.sort((left, right) => right.score - left.score);
+    const topPairs = duplicatePairs.slice(0, 5);
+    const uniqueItems = Array.from(new Map(topPairs.flatMap((pair) => [pair.left, pair.right]).map((item) => [item.id, item])).values());
+    const reasonById = new Map<string, string>();
+
+    topPairs.forEach((pair) => {
+      reasonById.set(pair.left.id, `Muy parecido a "${pair.right.titulo}".`);
+      reasonById.set(pair.right.id, `Muy parecido a "${pair.left.titulo}".`);
+    });
+
+    const duplicateGroups = topPairs.map((pair, index) => ({
+      type: 'duplicate-pair' as const,
+      title: `Posible duplicado ${index + 1}`,
+      description: `Similitud estimada: ${Math.round(pair.score * 100)}%.`,
+      items: [pair.left, pair.right],
+    }));
+
+    return buildAssistantResponse(
+      topPairs.length
+        ? `Detecté ${topPairs.length} pareja(s) de artículos potencialmente duplicados o muy parecidos.`
+        : 'No detecté duplicados claros ni artículos demasiado parecidos con las reglas actuales.',
+      uniqueItems,
+      uniqueItems,
+      contents.length,
+      reasonById,
+      duplicateGroups,
+    );
+  }
+
+  if (isPoorOcrQuestion(normalizedQuestion)) {
+    const poorOcrItems = contents.filter(seemsPoorOcr);
+    const reasonById = new Map(poorOcrItems.map((item) => [item.id, 'Muestra señales de OCR débil o texto poco confiable.']));
+
+    return buildAssistantResponse(
+      poorOcrItems.length
+        ? `Detecté ${formatArticleCount(poorOcrItems.length)} con señales de OCR débil o texto problemático.`
+        : 'No detecté artículos claramente problemáticos por OCR con las reglas actuales.',
+      poorOcrItems,
+      poorOcrItems,
+      contents.length,
+      reasonById,
+    );
+  }
+
+  if (isReprocessQuestion(normalizedQuestion)) {
+    const reprocessCandidates = contents.filter(
+      (item) =>
+        seemsPoorOcr(item) ||
+        !item.resumen.trim() ||
+        item.resumen.trim().length < 50 ||
+        item.tags.length < 2,
+    );
+    const reasonById = new Map<string, string>();
+
+    reprocessCandidates.forEach((item) => {
+      const reasons: string[] = [];
+
+      if (seemsPoorOcr(item)) {
+        reasons.push('OCR débil');
+      }
+
+      if (!item.resumen.trim() || item.resumen.trim().length < 50) {
+        reasons.push('resumen corto o faltante');
+      }
+
+      if (item.tags.length < 2) {
+        reasons.push('etiquetas insuficientes');
+      }
+
+      reasonById.set(item.id, `Conviene revisarlo por ${reasons.join(', ')}.`);
+    });
+
+    return buildAssistantResponse(
+      reprocessCandidates.length
+        ? `Sugiero considerar ${formatArticleCount(reprocessCandidates.length)} para revisión o reprocesado.`
+        : 'No detecté candidatos claros para reprocesado con las reglas actuales.',
+      reprocessCandidates,
+      reprocessCandidates,
+      contents.length,
+      reasonById,
+    );
+  }
+
+  if (isTranscriptionQuestion(normalizedQuestion)) {
+    const audioMap = await buildAttachmentMap(contents, 'audio');
+    const queryTokens = extractMeaningfulAssistantTokens(trimmedQuestion);
+    const matchedItems = contents.filter((item) => {
+      const notes = audioMap.get(item.id) || [];
+      const transcriptionText = notes
+        .map((note) => note.transcription || '')
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      if (!transcriptionText) {
+        return false;
+      }
+
+      if (queryTokens.length === 0) {
+        return true;
+      }
+
+      return queryTokens.some((token) => transcriptionText.includes(token));
+    });
+    const reasonById = new Map(matchedItems.map((item) => [item.id, 'Coincide dentro de una transcripción de audio adjunta.']));
+
+    return buildAssistantResponse(
+      matchedItems.length
+        ? `Encontré ${formatArticleCount(matchedItems.length)} cuya transcripción de audio coincide con tu consulta.`
+        : 'No encontré coincidencias dentro de las transcripciones de audio disponibles.',
+      matchedItems,
+      matchedItems,
+      contents.length,
+      reasonById,
+    );
+  }
+
+  if (isAudioQuestion(normalizedQuestion)) {
+    const audioMap = await buildAttachmentMap(contents, 'audio');
+    const matchedItems = contents.filter((item) => (audioMap.get(item.id) || []).length > 0);
+    const reasonById = new Map(
+      matchedItems.map((item) => [item.id, `${(audioMap.get(item.id) || []).length} audio(s) adjunto(s).`]),
+    );
+
+    return buildAssistantResponse(
+      matchedItems.length
+        ? `Encontré ${formatArticleCount(matchedItems.length)} con audio adjunto.`
+        : 'No encontré artículos con audio adjunto.',
+      matchedItems,
+      matchedItems,
+      contents.length,
+      reasonById,
+    );
+  }
+
+  if (isVideoQuestion(normalizedQuestion)) {
+    const videoMap = await buildAttachmentMap(contents, 'video');
+    const matchedItems = contents.filter((item) => (videoMap.get(item.id) || []).length > 0);
+    const reasonById = new Map(
+      matchedItems.map((item) => [item.id, `${(videoMap.get(item.id) || []).length} video(s) adjunto(s).`]),
+    );
+
+    return buildAssistantResponse(
+      matchedItems.length
+        ? `Encontré ${formatArticleCount(matchedItems.length)} con video adjunto.`
+        : 'No encontré artículos con video adjunto.',
+      matchedItems,
+      matchedItems,
+      contents.length,
+      reasonById,
+    );
+  }
+
+  if (isCoverageQuestion(normalizedQuestion)) {
+    const catalog = await getTagCatalog();
+    const counts = new Map<string, number>();
+
+    catalog.forEach((block) => counts.set(block.nombre, 0));
+    contents.forEach((item) => {
+      const uniqueBlocks = new Set(item.tags.map((tag) => tag.bloque).filter(Boolean));
+      uniqueBlocks.forEach((block) => counts.set(block as string, (counts.get(block as string) || 0) + 1));
+    });
+
+    const topBlocks = Array.from(counts.entries())
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5)
+      .filter(([, count]) => count > 0);
+
+    const answer = topBlocks.length
+      ? `Los bloques más cubiertos actualmente son: ${topBlocks.map(([name, count]) => `${name} (${count})`).join(', ')}.`
+      : 'Todavía no hay suficientes datos para identificar bloques bien cubiertos.';
+
+    return buildAssistantResponse(answer, [], [], contents.length);
+  }
+
+  if (isGrowthQuestion(normalizedQuestion)) {
+    const catalog = await getTagCatalog();
+    const now = Date.now();
+    const recentStart = now - 30 * 24 * 60 * 60 * 1000;
+    const previousStart = now - 60 * 24 * 60 * 60 * 1000;
+    const deltas = new Map<string, { recent: number; previous: number }>();
+
+    catalog.forEach((block) => deltas.set(block.nombre, { recent: 0, previous: 0 }));
+
+    contents.forEach((item) => {
+      const time = new Date(item.fecha).getTime();
+      const uniqueBlocks = new Set(item.tags.map((tag) => tag.bloque).filter(Boolean));
+
+      uniqueBlocks.forEach((block) => {
+        const current = deltas.get(block as string);
+
+        if (!current) {
+          return;
+        }
+
+        if (time >= recentStart) {
+          current.recent += 1;
+        } else if (time >= previousStart && time < recentStart) {
+          current.previous += 1;
+        }
+      });
+    });
+
+    const rankedGrowth = Array.from(deltas.entries())
+      .map(([name, value]) => ({ name, delta: value.recent - value.previous, recent: value.recent, previous: value.previous }))
+      .sort((left, right) => right.delta - left.delta)
+      .slice(0, 5)
+      .filter((entry) => entry.recent > 0 || entry.previous > 0);
+
+    const answer = rankedGrowth.length
+      ? `Tomando los últimos 30 días contra los 30 anteriores, los bloques con mayor empuje reciente son: ${rankedGrowth
+          .map((entry) => `${entry.name} (${entry.recent} vs ${entry.previous})`)
+          .join(', ')}.`
+      : 'No hay suficiente histórico reciente para estimar qué bloques están creciendo.';
+
+    return buildAssistantResponse(answer, [], [], contents.length);
+  }
+
+  if (isGapQuestion(normalizedQuestion)) {
+    const catalog = await getTagCatalog();
+    const counts = new Map<string, number>();
+
+    catalog.forEach((block) => counts.set(block.nombre, 0));
+    contents.forEach((item) => {
+      const uniqueBlocks = new Set(item.tags.map((tag) => tag.bloque).filter(Boolean));
+      uniqueBlocks.forEach((block) => counts.set(block as string, (counts.get(block as string) || 0) + 1));
+    });
+
+    const gaps = Array.from(counts.entries())
+      .filter(([, count]) => count <= 1)
+      .sort((left, right) => left[1] - right[1]);
+
+    const answer = gaps.length
+      ? `Los huecos temáticos más claros hoy están en: ${gaps.slice(0, 6).map(([name, count]) => `${name} (${count})`).join(', ')}.`
+      : 'No detecté huecos temáticos obvios: todos los bloques tienen al menos algo de cobertura.';
+
+    return buildAssistantResponse(answer, [], [], contents.length);
+  }
+
+  if (isTagCatalogQuestion(normalizedQuestion)) {
+    const catalog = await getTagCatalog();
+    const usageCount = new Map<string, number>();
+    const normalizedTagOwners = new Map<string, string[]>();
+
+    catalog.forEach((block) => {
+      block.tags.forEach((tag) => {
+        usageCount.set(tag, 0);
+        const normalizedTag = normalizeAssistantQuestion(tag);
+        normalizedTagOwners.set(normalizedTag, [...(normalizedTagOwners.get(normalizedTag) || []), block.nombre]);
+      });
+    });
+
+    contents.forEach((item) => {
+      item.tags.forEach((tag) => {
+        usageCount.set(tag.nombre, (usageCount.get(tag.nombre) || 0) + 1);
+      });
+    });
+
+    const duplicateTags = Array.from(normalizedTagOwners.entries())
+      .filter(([, owners]) => owners.length > 1)
+      .map(([tag, owners]) => `${tag} en ${owners.join(' / ')}`);
+    const unusedTags = Array.from(usageCount.entries())
+      .filter(([, count]) => count === 0)
+      .map(([tag]) => tag);
+
+    const fragments: string[] = [];
+
+    if (duplicateTags.length > 0) {
+      fragments.push(`etiquetas potencialmente duplicadas: ${duplicateTags.slice(0, 5).join(', ')}`);
+    }
+
+    if (unusedTags.length > 0) {
+      fragments.push(`etiquetas hoy sin uso: ${unusedTags.slice(0, 8).join(', ')}`);
+    }
+
+    const answer = fragments.length
+      ? `Detecté ${fragments.join('. ')}.`
+      : 'No detecté etiquetas duplicadas ni etiquetas claramente sobrantes con las reglas actuales.';
+
+    return buildAssistantResponse(answer, [], [], contents.length);
+  }
+
+  const rankedCandidates = rankedContents
+    .filter((entry, index) => entry.score > 0 || index < 8)
+    .slice(0, 8)
+    .map(({ item }) => ({
       id: item.id,
       title: item.titulo,
       summary: item.resumen_largo || item.resumen,
-      tags: item.tags,
-      translatedText: item.texto_traducido,
-      publishedAt: new Date(item.fecha).toLocaleDateString('es-MX'),
-      score: scoreAssistantMatch(trimmedQuestion, {
-        title: item.titulo,
-        summary: item.resumen_largo || item.resumen,
-        translatedText: item.texto_traducido,
-        tags: item.tags,
-      }),
-    }))
-    .sort((left, right) => right.score - left.score)
-    .filter((item, index) => item.score > 0 || index < 8)
-    .slice(0, 8)
-    .map((item) => ({
-      id: item.id,
-      title: item.title,
-      summary: item.summary,
       tags: item.tags.map((tag) => tag.nombre),
-      publishedAt: item.publishedAt,
-      textSnippet: item.translatedText.slice(0, 1200),
+      publishedAt: new Date(item.fecha).toLocaleDateString('es-MX'),
+      textSnippet: item.texto_traducido.slice(0, 1200),
     }));
 
   return answerRepositoryQuestion(trimmedQuestion, rankedCandidates);

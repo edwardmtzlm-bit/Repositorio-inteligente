@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { appendImagesToContent, attachAudioToContent, attachVideoToContent, deleteContent, enrichContent, getContentAudioNotes, getContentVideoNotes, getLibraryDocxUrl, listContents, queryRepositoryAssistant, regenerateExistingDocuments, removeAudioFromContent, removeVideoFromContent, saveContent, syncExistingContentsToLibraryDoc, transcribeContentAudio, updateContentMetadata } from '../services/contentService';
+import { searchRepositoryByImageBuffer } from '../services/imageSearchService';
 
 export const searchRouter = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -61,12 +62,45 @@ searchRouter.patch('/contents/:contentId/metadata', async (req, res) => {
 
 searchRouter.patch('/contents/:contentId/images', async (req, res) => {
   try {
-    const content = await appendImagesToContent(req.params.contentId, Array.isArray(req.body.imageUrls) ? req.body.imageUrls : []);
+    const content = await appendImagesToContent(
+      req.params.contentId,
+      Array.isArray(req.body.imageUrls) ? req.body.imageUrls : [],
+      Array.isArray(req.body.imageFingerprints) ? req.body.imageFingerprints : [],
+    );
     return res.json(content);
   } catch (error) {
     console.error('Error en PATCH /api/contents/:contentId/images:', error);
     return res.status(500).json({
       error: error instanceof Error ? error.message : 'No fue posible agregar imágenes al contenido.',
+    });
+  }
+});
+
+searchRouter.post('/image-search', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Debes seleccionar una imagen para buscar.' });
+    }
+
+    const result = await searchRepositoryByImageBuffer(req.file.buffer, req.file.mimetype);
+
+    return res.json({
+      answer: result.matches.length
+        ? `Encontré ${result.matches.length} posible(s) coincidencia(s) para la imagen.`
+        : 'No encontré coincidencias claras para esta imagen.',
+      matchedContentIds: result.matches.map((match) => match.id),
+      candidateCount: result.matches.length,
+      reviewedItems: result.matches.map((match) => ({
+        id: match.id,
+        title: match.title,
+        summary: match.summary,
+        reason: match.reason,
+      })),
+    });
+  } catch (error) {
+    console.error('Error en POST /api/image-search:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'No fue posible buscar por imagen.',
     });
   }
 });

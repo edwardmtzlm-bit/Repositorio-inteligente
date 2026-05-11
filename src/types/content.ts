@@ -53,12 +53,29 @@ export interface RepositoryAssistantResponse {
   matchedContentIds: string[];
   candidateCount: number;
   reviewedItems: RepositoryAssistantMatch[];
+  groups?: RepositoryAssistantGroup[];
 }
 
 export interface RepositoryAssistantMatch {
   id: string;
   title: string;
   summary: string;
+  reason?: string;
+}
+
+export interface RepositoryAssistantGroup {
+  type: 'duplicate-pair';
+  title: string;
+  description?: string;
+  items: RepositoryAssistantMatch[];
+}
+
+export interface ImageFingerprint {
+  imageUrl: string;
+  originalName?: string;
+  sha256?: string;
+  perceptualHash?: string | null;
+  ocrText?: string;
 }
 
 export type ProcessingMode = 'single-topic' | 'auto-separate';
@@ -66,6 +83,7 @@ export type ProcessingMode = 'single-topic' | 'auto-separate';
 export interface ProcessingDraftGroup {
   id: string;
   imageUrls: string[];
+  imageFingerprints?: ImageFingerprint[];
   coverImageUrl: string;
   sourceInputType?: 'images' | 'audio' | 'video' | 'text';
   sourceAudioName?: string;
@@ -96,6 +114,7 @@ export interface ProcessingResponse {
 export interface SaveContentPayload {
   imageUrl: string;
   imageUrls: string[];
+  imageFingerprints?: ImageFingerprint[];
   sourceUrl: string;
   notes: string;
   originalText: string;
