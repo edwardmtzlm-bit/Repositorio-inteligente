@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ConfirmationPanel } from '../components/ConfirmationPanel';
 import { ContentCard } from '../components/ContentCard';
 import { ContentDetailDialog } from '../components/ContentDetailDialog';
+import { HermesGuide } from '../components/HermesGuide';
 import { RepositoryAssistantPanel } from '../components/RepositoryAssistantPanel';
 import { SearchToolbar } from '../components/SearchToolbar';
 import { TagCatalogDialog } from '../components/TagCatalogDialog';
@@ -21,6 +22,12 @@ export function KnowledgeRepositoryPage() {
   const [assistantFilterActive, setAssistantFilterActive] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ContentListItem | null>(null);
   const [processingResponse, setProcessingResponse] = useState<ProcessingResponse | null>(null);
+  const [hermes, setHermes] = useState<{ active: boolean; phase: 'standby' | 'travel' | 'arrive'; x: number; y: number }>({
+    active: false,
+    phase: 'standby',
+    x: 0,
+    y: 0,
+  });
   const { items, tagCatalog, loading, error, refresh, libraryDocxUrl, syncLibraryDocx, regenerateExistingDocuments, deleteContent, saveTagCatalog } = useContents(search, selectedBlocks);
 
   const toggleFilterBlock = (blockName: string) => {
@@ -53,7 +60,43 @@ export function KnowledgeRepositoryPage() {
 
   const revealItemInScreen = (itemId: string) => {
     const target = document.getElementById(`content-card-${itemId}`);
-    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    if (!target) {
+      return;
+    }
+
+    const startX = assistantOpen ? Math.max(68, window.innerWidth - 420) : window.innerWidth - 92;
+    const startY = Math.min(170, Math.max(92, window.innerHeight * 0.18));
+
+    setHermes({ active: true, phase: 'standby', x: startX, y: startY });
+
+    window.setTimeout(() => {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 700);
+
+    window.setTimeout(() => {
+      const rect = target.getBoundingClientRect();
+      setHermes((current) => ({
+        ...current,
+        phase: 'travel',
+        x: window.innerWidth / 2,
+        y: Math.min(window.innerHeight - 110, Math.max(110, window.innerHeight * 0.48)),
+      }));
+    }, 900);
+
+    window.setTimeout(() => {
+      const rect = target.getBoundingClientRect();
+      setHermes({
+        active: true,
+        phase: 'arrive',
+        x: rect.left + Math.min(rect.width - 54, Math.max(70, rect.width * 0.78)),
+        y: rect.top + Math.min(88, Math.max(56, rect.height * 0.18)),
+      });
+    }, 1600);
+
+    window.setTimeout(() => {
+      setHermes((current) => ({ ...current, active: false }));
+    }, 3600);
   };
 
   const openMatchedItem = (itemId: string) => {
@@ -198,6 +241,8 @@ export function KnowledgeRepositoryPage() {
           Asistente
         </button>
       )}
+
+      <HermesGuide active={hermes.active} phase={hermes.phase} x={hermes.x} y={hermes.y} />
     </div>
   );
 }

@@ -124,8 +124,12 @@ export function RepositoryAssistantPanel({
               disabled={loading || !question.trim()}
               className="mt-3 inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:bg-slate-300"
             >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              {loading ? 'Consultando...' : 'Consultar'}
+              {loading ? (
+                <video src="/hermes.mp4" autoPlay muted loop playsInline className="h-8 w-8 rounded-lg object-contain" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              {loading ? 'Hermes buscando...' : 'Consultar'}
             </button>
             <button
               onClick={resetAssistant}
