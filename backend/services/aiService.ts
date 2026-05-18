@@ -120,6 +120,10 @@ Nombre de archivo: ${originalName}
     transcription = fallbackResult.text?.trim();
   }
 
+  if (!transcription && isVideo) {
+    return `Video cargado desde el archivo "${originalName}". No se detectó voz clara ni texto visual utilizable automáticamente. Usar el video adjunto y el contexto manual del usuario como referencia principal.`;
+  }
+
   if (!transcription) {
     throw new Error(`La IA no devolvió una transcripción para el ${isVideo ? 'video' : 'audio'}.`);
   }
