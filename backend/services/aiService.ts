@@ -57,7 +57,10 @@ Instrucciones:
 4. Si mezcla inglés y español, conserva el sentido y normaliza al español cuando sea razonable.
 5. Si hay fragmentos ininteligibles, marca [inaudible].
 6. No agregues encabezados ni notas extra.
-7. Ignora descripciones visuales; concéntrate en la voz o diálogo relevante.
+7. ${isVideo
+    ? 'Si no hay voz clara, extrae el texto visible del video y describe brevemente los elementos visuales relevantes para convertirlo en contenido útil.'
+    : 'Concéntrate en la voz o diálogo relevante.'}
+8. Nunca devuelvas una respuesta vacía. Si no hay información utilizable, responde: "Video sin voz ni texto visual utilizable." o "Audio sin voz utilizable.", según corresponda.
 
 Nombre de archivo: ${originalName}
 `;
@@ -80,7 +83,42 @@ Nombre de archivo: ${originalName}
     ],
   });
 
-  const transcription = result.text?.trim();
+  let transcription = result.text?.trim();
+
+  if (!transcription && isVideo) {
+    const fallbackPrompt = `
+Analiza este video para crear una base textual en español.
+
+Prioridad:
+1. Transcribe voz o diálogo si existe.
+2. Si no hay voz clara, extrae texto visible.
+3. Si tampoco hay texto visible, describe brevemente lo que se observa.
+
+Devuelve solo el texto útil. No agregues encabezados.
+
+Nombre de archivo: ${originalName}
+`;
+
+    const fallbackResult = await genAI.models.generateContent({
+      model,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: fallbackPrompt },
+            {
+              inlineData: {
+                mimeType,
+                data: buffer.toString('base64'),
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    transcription = fallbackResult.text?.trim();
+  }
 
   if (!transcription) {
     throw new Error(`La IA no devolvió una transcripción para el ${isVideo ? 'video' : 'audio'}.`);
